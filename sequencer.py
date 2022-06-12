@@ -2,10 +2,26 @@ import numpy as np
 from numpy import pi 
 from math import floor
 import scipy.io.wavfile
+import csv
+import pandas as pd
 rng = np.random.default_rng(12345)
 
 SAMPLE_RATE = 48000# samples / second
 BIT_DEPTH = 16
+intervals = {
+    "1":    1,
+    "m2":   16/15, 
+    "M2":   9/8,
+    "m3":   6/5, 
+    "M3":   5/4, 
+    "4":    4/3, 
+    "tri":  25/18,
+    "5":    3/2,
+    "m6":   8/5,
+    "M6":   5/3,
+    "m7":   9/5, 
+    "M7":   15/8,
+    "o":    2}
 
 def samples_to_seconds (samples):
     return samples / SAMPLE_RATE
@@ -16,75 +32,98 @@ def seconds_to_samples (seconds):
 def freq_to_wavelength (frequency):
     return floor(SAMPLE_RATE / frequency)
 
+def add_waveforms(wf_a, wf_b):
+    new_wf = np.add(wf_a, wf_b)
+    new_wf -= .5
+    return new_wf
+
+def load_csv(filename):
+    csv_dicts = []
+    waveform_list = []
+
+    with open(filename, mode='r') as csvfile:
+        reader = csv.reader(csvfile)
+        reader = csv.reader(csvfile)
+        temp_list = []
+        for i in reader:
+            temp_list.append(i)
+
+    for i in temp_list[1:]:
+        new_dict = {}
+        for ii, value in enumerate(i):
+            if len(value):
+                new_dict[temp_list[0][ii]] = value
+        csv_dicts.append(new_dict)
+    for i in csv_dicts:
+        if 'bpm' in i:
+            bpm = float(i['bpm'])
+            length = float(i['seq_length'])
+            seq = Sequencer(length, bpm)
+        else:
+            wf, start = process_csv_row(i, bpm)
+            seq.place_waveform(start, wf.waveform) 
+    return seq
+
+def process_csv_row(row, bpm):
+    signal_type = signal_map[row['signal_type']] 
+    length = float(row['length'])
+    start = float(row['start'])
+    gain = float(row['gain'])
+    samples = samples_from_beats(bpm, length)
+    if 'freq' in row:
+        freq = float(row['freq'])
+        waveform = signal_type(freq, samples, gain = gain)
+    else:
+        waveform = signal_type(samples, gain = gain)
+    return waveform, start
+
+def samples_from_beats(bpm, beat):
+    samples = int((beat * 60 * SAMPLE_RATE) / bpm)
+    return samples
+
+def beats_from_samples(bpm, samples):
+    beats = (samples * bpm) / (60 * SAMPLE_RATE)
+    return beats
+
 class Sequencer:
     def __init__(self, beats, bpm):
         self.bpm = bpm
         self.beats = beats 
         self.bps = self.bpm / 60
-        self.beat_length = (SAMPLE_RATE / self.bps)
-        self.sequence = np.empty(int(self.beats * self.beat_length))
+        self.beat_length = int(SAMPLE_RATE / self.bps)
+        self.sequence = Rest(self.beats * self.beat_length).waveform
 
-    def beat_start(self, beat):
-        return int(beat * self.beat_length)
+    def place_waveform(self, beat, waveform):
+        first_sample = samples_from_beats(self.bpm, beat)
+        try:
+            self.sequence[first_sample: first_sample + waveform.size] = waveform
+        except ValueError as e:
+            print("ERROR! sequence not big enought")
 
-    def fill_seq(self):
-        scale = Scale(200)
-        # Write sine waves with frequency incrementing by 50hz per beat
+    def example(self):
         for i in range(self.beats):
-            osc = Oscillator(25 * i + 1, SAMPLE_RATE / self.bps)
-            osc = Oscillator(np.random.choice(scale.scale), int(SAMPLE_RATE / self.bps))
-            wf = osc.generate_waveform("square")
-            last_sample = self.beat_start(i+1)
-            sample_size = self.sequence[self.beat_start(i) : last_sample].size
-            self.sequence[int(i * self.beat_length) : last_sample] = wf[:sample_size]
-        return self.sequence
-
-    def add_waveforms(self, wf_a, wf_b):
-        new_wf = np.add(wf_a, wf_b)
-        new_wf -= .5
-        return new_wf
+            if i % 2:
+                osc = Sine(np.random.choice(major_pentatonic.scale), self.beat_length / 2)
+                wf = osc.waveform
+            else:
+                wf = WhiteNoise(self.beat_length / 2 ,gain=.25).waveform
+            wf = LinearFadeIn(wf, self.beat_length / 8).wave  
+            wf = LinearFadeOut(wf, self.beat_length / 8).wave  
+            self.place_waveform(i, wf)
+        self.write_sequence("example.wav")
 
     def write_sequence(self, filename):
         scipy.io.wavfile.write(filename, SAMPLE_RATE, self.sequence) 
 
-class Oscillator:
-    def __init__(self, freq, samples, gain = 1):
-        self.freq = freq
-        self.samples = samples
+class SignalGenerator:
+    def __init__(self, samples, gain = 1):
+        self.samples = int(samples)
         self.seconds = samples_to_seconds(samples)
         self.gain = gain
+        self.generate_waveform()
 
-    def generate_waveform (self, shape): # length in seconds
-        if shape == "sine":
-            return self.sine_wave()
-        elif shape == "square":
-            return self.square_wave()
-        else:
-            return False
-    # TODO, sawtooth, triangle wave
-
-    def sine_wave(self):
-        end_angle = self.freq * 2 * np.pi * self.seconds 
-        step_angle = end_angle / self.samples
-        sample_array = np.arange(0, end_angle , step_angle)
-        wave_array = np.sin(sample_array)
-        wave_array *= self.gain
-        return wave_array
-
-    def square_wave(self):
-        wavelength = freq_to_wavelength(self.freq)
-        wave_array = np.empty(self.samples)
-        sample_count = 0
-        value = 1
-        end_flag = False
-        while True:
-            value *= -1
-            for i in range(wavelength):
-                if sample_count >= self.samples:
-                    wave_array *= self.gain
-                    return wave_array
-                wave_array[sample_count] = value
-                sample_count += 1
+    def generate_waveform(self):
+        self.waveform = None
 
     def visualize_waveform(self, waveform):
         for i in waveform:
@@ -92,14 +131,24 @@ class Oscillator:
             num = floor(i * length) + length
             print("#" * num)
 
+    def write_waveform(self, filename):
+        scipy.io.wavfile.write(filename, SAMPLE_RATE, self.waveform) 
+
+class Oscillator(SignalGenerator):
+    def __init__(self, freq, samples, gain = 1):
+        self.freq = freq
+        super().__init__(samples, gain)
+
 class Sine(Oscillator):
     def generate_waveform(self):
         end_angle = self.freq * 2 * np.pi * self.seconds 
         step_angle = end_angle / self.samples
         sample_array = np.arange(0, end_angle , step_angle)
         wave_array = np.sin(sample_array)
+        wave_array -= .5
         wave_array *= self.gain
-        return wave_array
+        wave_array += .5
+        self.waveform = wave_array
 
 class Square(Oscillator):        
     def generate_waveform(self):
@@ -112,47 +161,79 @@ class Square(Oscillator):
             value *= -1
             for i in range(wavelength):
                 if sample_count >= self.samples:
+                    wave_array -= .5
                     wave_array *= self.gain
-                    return wave_array
+                    wave_array += .5
+                    self.waveform = wave_array
+                    return
                 wave_array[sample_count] = value
                 sample_count += 1
 
-class Scale():
-    def __init__(self, unison):
-        self.unison = unison 
-        self.intervals = np.array([1, 16/15,  9/8, 6/5, 5/4, 4/3, 25/18, 3/2, 8/5, 5/3, 9/5, 15/8, 2])
-        self.scale = self.intervals * self.unison
-        self.mapping = ["1", "m2", "M2", "m3", "M3", "4", "tri", "5", "m6", "M6", "m7", "M7", "o"]
+class WhiteNoise(SignalGenerator):
+    def generate_waveform(self):
+        self.waveform = np.random.rand(self.samples)
+        self.waveform -= .5
+        self.waveform *= self.gain
+        self.waveform += .5
 
-class WhiteNoise:
-    def __init__(self, samples):
-        self.noise = True
-        self.samples = samples
-    def generate_noise (self):
-        return np.random.rand(self.samples)
+class Rest(SignalGenerator):
+    def generate_waveform(self):
+        self.waveform = np.full((self.samples),.5)
+
+class Scale():
+    def __init__(self, unison, notes):
+        self.unison = unison 
+        self.intervals = []
+        for i in notes:
+            self.intervals.append(intervals[i])
+        self.intervals = np.array(self.intervals)
+        self.scale = self.intervals * self.unison
 
 class Envelope:
-    def __init__(self, wave, shape):
-        self.shape = shape
+    def __init__(self, wave):
         self.wave = wave
-    pass
-    # TODO take a np.array waveform as input, shape based on math to process it, and return
+        self.generate_envelope()
+        self.apply_envelope()
+
+class LinearFadeIn(Envelope):
+    def __init__(self, wave, samples):
+        self.samples = samples
+        super().__init__(wave)
+
+    def generate_envelope(self):
+        self.envelope = np.full((self.wave.size),1)
+        fade = np.arange(0, 1, 1/self.samples)
+        self.envelope = np.concatenate((fade, self.envelope[fade.size:]))
+
+    def apply_envelope(self):
+        self.wave = self.wave- .5
+        self.wave *= self.envelope
+        self.wave = self.wave + .5
+
+class LinearFadeOut(LinearFadeIn):
+    def generate_envelope(self):
+        super().generate_envelope()
+        self.envelope = np.flip(self.envelope)
+
+signal_map = {
+    "sine": Sine,
+    "square": Square,
+    "white_noise": WhiteNoise,
+}
+
 class Filter:
     pass
     # TODO take a np.array waveform as input, run a fourier transform on it, apply appropriate filtering, and return
 
-
 if __name__ == "__main__":
-    osc = Oscillator(200, 2 * SAMPLE_RATE)
-    wf = osc.generate_waveform("sine") 
-    osc2 = Oscillator(400, 2 * SAMPLE_RATE)
-    wf2 = osc2.generate_waveform("sine") 
-    wf3 = np.concatenate([wf, wf2])
-    #osc.visualize_waveform(wf)
-    seq = Sequencer(16, 120)
-    wf3 = seq.fill_seq()
-    seq.write_sequence("random.wav")
-    scipy.io.wavfile.write("karplus.wav", SAMPLE_RATE, wf3)       
-    wn = WhiteNoise(1 * SAMPLE_RATE).generate_noise()
+    major_pentatonic = Scale(200,["1","M2","M3","5","M6","o"])
+    seq = Sequencer(16, 60)
+    csv_seq = load_csv("example.csv")
+    csv_seq.write_sequence("csv_seq.wav")
+    wf3 = seq.example()
+    wn = WhiteNoise(6 * SAMPLE_RATE).waveform
+    wn = LinearFadeIn(wn, 2 * SAMPLE_RATE).wave
+    wn = LinearFadeOut(wn, 2 * SAMPLE_RATE).wave
+
     scipy.io.wavfile.write("noise.wav", SAMPLE_RATE, wn)       
 
