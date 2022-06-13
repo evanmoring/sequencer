@@ -4,6 +4,10 @@ from math import floor
 import scipy.io.wavfile
 import csv
 import pandas as pd
+import pyaudio
+import time
+from threading import Thread, Lock
+
 rng = np.random.default_rng(12345)
 
 SAMPLE_RATE = 48000# samples / second
@@ -87,6 +91,7 @@ def beats_from_samples(bpm, samples):
 
 class Sequencer:
     def __init__(self, beats, bpm):
+        self.mutex = Lock()
         self.bpm = bpm
         self.beats = beats 
         self.bps = self.bpm / 60
@@ -114,6 +119,20 @@ class Sequencer:
 
     def write_sequence(self, filename):
         scipy.io.wavfile.write(filename, SAMPLE_RATE, self.sequence) 
+
+    def play_sequence(self):
+        # TODO write audio in chunks
+        P = pyaudio.PyAudio()
+        CHUNK = 1024
+        stream = P.open(rate=SAMPLE_RATE, format=pyaudio.paFloat32, channels=1, output=True)
+        data = self.sequence.astype(np.float32).tostring()
+        while True:
+            stream.write(data)
+            time.sleep(1)
+
+        #stream.close() # this blocks until sound finishes playing
+
+        P.terminate()
 
 class SignalGenerator:
     def __init__(self, samples, gain = 1):
@@ -225,11 +244,24 @@ class Filter:
     pass
     # TODO take a np.array waveform as input, run a fourier transform on it, apply appropriate filtering, and return
 
+def test():
+    while True:
+        print("thread")
+        time.sleep(2)
+
 if __name__ == "__main__":
     major_pentatonic = Scale(200,["1","M2","M3","5","M6","o"])
     seq = Sequencer(16, 60)
     csv_seq = load_csv("example.csv")
     csv_seq.write_sequence("csv_seq.wav")
+    seq_thread = Thread(target=csv_seq.play_sequence)
+    seq_thread.daemon = True
+    #seq_thread = Thread(target=test)
+    seq_thread.start()
+    while True:
+        print("print")
+        time.sleep(2)
+    #csv_seq.play_sequence()
     wf3 = seq.example()
     wn = WhiteNoise(6 * SAMPLE_RATE).waveform
     wn = LinearFadeIn(wn, 2 * SAMPLE_RATE).wave
