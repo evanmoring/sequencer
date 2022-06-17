@@ -79,9 +79,9 @@ def process_csv_row(row, bpm):
     samples = samples_from_beats(bpm, length)
     if 'freq' in row:
         freq = float(row['freq'])
-        waveform = signal_type(freq, samples, gain = gain).waveform
+        waveform = signal_type(freq, samples, gain = gain)
     else:
-        waveform = signal_type(samples, gain = gain).waveform
+        waveform = signal_type(samples, gain = gain)
     return waveform, start
 
 def samples_from_beats(bpm, beat):
@@ -98,7 +98,7 @@ class Sequencer:
         self.beats = beats 
         self.bps = self.bpm / 60
         self.beat_length = int(SAMPLE_RATE / self.bps) 
-        self.waveform = Rest(self.beats * self.beat_length).waveform
+        self.waveform = Rest(self.beats * self.beat_length)
         self.array = self.waveform.array
 
     def place_waveform(self, beat, waveform):
@@ -146,6 +146,9 @@ class Waveform():
         filtered_fft = filt.apply_filter(self)
         self.array = self.ifft(filtered_fft)
 
+    def apply_envelope(self, env, arg_list = []):
+        self.array = env(self.array, *arg_list).wave.array
+
     def write(self, filename):
         wavfile.write(filename, SAMPLE_RATE, self.array) 
 
@@ -192,13 +195,14 @@ class Waveform():
         ax.set_yscale('log')
         plt.show()
 
-class SignalGenerator:
+class SignalGenerator(Waveform):
     def __init__(self, samples, gain = 1):
         self.samples = int(samples)
         self.seconds = samples_to_seconds(samples)
         self.gain = gain
-        self.generate_waveform()
-        self.waveform.apply_gain(self.gain)
+        array = self.generate_waveform()
+        super().__init__(array)
+        self.apply_gain(self.gain)
 
     def generate_waveform(self):
         self.waveform = None
@@ -208,9 +212,6 @@ class SignalGenerator:
             length = 100
             num = floor(i * length) + length
             print("#" * num)
-
-    def write_waveform(self, filename):
-        scipy.io.wavfile.write(filename, SAMPLE_RATE, self.waveform) 
 
 class Oscillator(SignalGenerator):
     def __init__(self, freq, samples, gain = 1):
@@ -223,7 +224,7 @@ class Sine(Oscillator):
         step_angle = end_angle / self.samples
         sample_array = np.arange(0, end_angle , step_angle)
         wave_array = np.sin(sample_array)
-        self.waveform = Waveform(wave_array)
+        return wave_array 
 
 class Square(Oscillator):        
     def generate_waveform(self):
@@ -236,20 +237,18 @@ class Square(Oscillator):
             value *= -1
             for i in range(wavelength):
                 if sample_count >= self.samples:
-                    self.waveform = Waveform(wave_array)
-                    return
+                    return wave_array
                 wave_array[sample_count] = value
                 sample_count += 1
 
 class WhiteNoise(SignalGenerator):
     def generate_waveform(self):
-        wf = np.random.rand(self.samples)
-        self.waveform = Waveform(wf)
+        return np.random.rand(self.samples)
+        
 
 class Rest(SignalGenerator):
     def generate_waveform(self):
-        wf = np.full((self.samples),.5)
-        self.waveform = Waveform(wf) 
+        return np.full((self.samples),.5)
 
 class Scale():
     def __init__(self, unison, notes):
@@ -336,10 +335,10 @@ class LowPassFilter(Filter):
 class Kick(Waveform):
     def __init__(self):
         length = seconds_to_samples(1)
-        k = WhiteNoise(length, gain = .25).waveform
+        k = WhiteNoise(length, gain = .25)
         lp = LowPassFilter(250)
         k.apply_filter(lp)
-        s = Sine(120, length).waveform
+        s = Sine(120, length)
         k = add_waveforms(k, s)
         k = LinearFadeIn(k, 2400).wave
         k = LinearFadeOut(k, length - 2400).wave
@@ -359,7 +358,7 @@ if __name__ == "__main__":
     #wn = WhiteNoise(6 * SAMPLE_RATE).waveform
     sin = Sine(200, 48000)
     sin2 = Sine(300, 48000)
-    sin = add_waveforms(sin.waveform, sin2.waveform)
+    sin = add_waveforms(sin, sin2)
     #fft = sin.fft()
     #sin.array = sin.ifft(fft)
     hp = LowPassFilter(500)
@@ -368,8 +367,8 @@ if __name__ == "__main__":
     
     k = Kick()
     k.write("kick.wav")
-
-    wn = WhiteNoise(int(2 * SAMPLE_RATE)).waveform
+    Rest(seconds_to_samples(2)).write("REST.wav")
+    wn = WhiteNoise(int(2 * SAMPLE_RATE))
     wn = LinearFadeIn(wn, 2 * SAMPLE_RATE).wave
     wn.write("noise.wav")
     wn.apply_filter(hp)
