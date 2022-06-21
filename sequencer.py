@@ -40,8 +40,8 @@ def freq_to_wavelength (frequency):
 
 def add_waveforms(wf_a, wf_b):
     new_array = np.add(wf_a.array, wf_b.array)
-    new_array -= .5
     new_wf = Waveform(new_array)
+    new_wf.apply_gain(.5)
     return new_wf
 
 def load_csv(filename):
@@ -92,39 +92,10 @@ def beats_from_samples(bpm, samples):
     beats = (samples * bpm) / (60 * SAMPLE_RATE)
     return beats
 
-class Sequencer:
-    def __init__(self, beats, bpm):
-        self.bpm = bpm
-        self.beats = beats 
-        self.bps = self.bpm / 60
-        self.beat_length = int(SAMPLE_RATE / self.bps) 
-        self.waveform = Rest(self.beats * self.beat_length)
-        self.array = self.waveform.array
-
-    def place_waveform(self, beat, waveform):
-        first_sample = samples_from_beats(self.bpm, beat)
-        try:
-            self.array[first_sample: first_sample + waveform.array.size] = waveform.array
-        except ValueError as e:
-            print("ERROR! sequence not big enought")
-
-    def example(self):
-        for i in range(self.beats):
-            if i % 2:
-                osc = Sine(np.random.choice(major_pentatonic.scale), self.beat_length / 2)
-                wf = osc
-            else:
-                wf = WhiteNoise(self.beat_length / 2 ,gain=.25)
-            wf = LinearFadeIn(wf, self.beat_length / 8).wave  
-            wf = LinearFadeOut(wf, self.beat_length / 8).wave  
-            self.place_waveform(i, wf)
-        self.write_sequence("example.wav")
-
-    def write_sequence(self, filename):
-        self.waveform.write(filename)
-
-    def play_sequence(self):
-        self.waveform.play()
+def LoadWav(filename):
+    r = wavfile.read(filename)
+    return Waveform(r[1])
+    
 
 class Waveform():
     def __init__(self, array):
@@ -132,15 +103,13 @@ class Waveform():
         self.mutex = Lock()
 
     def apply_bias(self):
-        self.array += .5
+        self.array = self.array + .5
 
     def remove_bias(self):
-        self.array -= .5
+        self.array = self.array - .5
 
     def apply_gain(self, gain):
-        self.remove_bias()
         self.array *= gain 
-        self.apply_bias()
 
     def apply_filter(self, filt):
         filtered_fft = filt.apply_filter(self)
@@ -153,7 +122,15 @@ class Waveform():
         wavfile.write(filename, SAMPLE_RATE, self.array) 
 
     def normalize(self):
-        #TODO
+        a = self.array
+        a_max = a.max()
+        a_min = a.min()
+        if a_max > abs(a_min):
+            gain_factor = a_max
+        else:
+            gain_factor = abs(a_min)
+        gain = 1/gain_factor
+        self.apply_gain(gain)
         pass
 
     def play(self):
@@ -195,6 +172,37 @@ class Waveform():
         ax.set_yscale('log')
         plt.show()
 
+
+class Sequencer(Waveform):
+    def __init__(self, beats, bpm):
+        self.bpm = bpm
+        self.beats = beats 
+        self.bps = self.bpm / 60
+        self.beat_length = int(SAMPLE_RATE / self.bps) 
+        array = Rest(self.beats * self.beat_length).array
+        super().__init__(array)
+
+    def place_waveform(self, beat, waveform):
+        first_sample = samples_from_beats(self.bpm, beat)
+        last_sample = first_sample + waveform.array.size
+        try:
+            self.array[first_sample: last_sample] = waveform.array
+            
+        except ValueError as e:
+            print("ERROR! sequence not big enought")
+
+    def example(self):
+        for i in range(self.beats):
+            if i % 2:
+                osc = Sine(np.random.choice(major_pentatonic.scale), self.beat_length / 2)
+                wf = osc
+            else:
+                wf = WhiteNoise(self.beat_length / 2 ,gain=.25)
+            wf = LinearFadeIn(wf, self.beat_length / 8).wave  
+            wf = LinearFadeOut(wf, self.beat_length / 8).wave  
+            self.place_waveform(i, wf)
+        self.write_sequence("example.wav")
+
 class SignalGenerator(Waveform):
     def __init__(self, samples, gain = 1):
         self.samples = int(samples)
@@ -226,6 +234,20 @@ class Sine(Oscillator):
         wave_array = np.sin(sample_array)
         return wave_array 
 
+class BentSine(Oscillator):
+    # TODO: test
+    def __init__(self, freq, freq2, samples, gain = 1):
+        self.freq2 = freq2
+        super().__init__(freq, samples, gain)
+    def generate_waveform(self):
+        a = np.full((self.samples),.5)
+        freq_step = (self.freq2 - self.freq)/self.samples
+        freq_array = np.arange(self.freq, self.freq2 , freq_step)
+        for i in range(self.samples):
+            angle = np.sin(freq_array[i] * samples_to_seconds(i) *  2 * np.pi)
+            a[i] = angle
+        return a 
+
 class Square(Oscillator):        
     def generate_waveform(self):
         wavelength = freq_to_wavelength(self.freq)
@@ -248,7 +270,29 @@ class WhiteNoise(SignalGenerator):
 
 class Rest(SignalGenerator):
     def generate_waveform(self):
-        return np.full((self.samples),.5)
+        return np.full((self.samples),0.0)
+
+class Kick(Waveform):
+    def __init__(self):
+        length = seconds_to_samples(1)
+        k = WhiteNoise(length, gain = .25)
+        lp = LowPassFilter(250)
+        k.apply_filter(lp)
+        s = BentSine(150, 100, length)
+        k = add_waveforms(k, s)
+        k = LinearFadeIn(k, 2400).wave
+        k = LinearFadeOut(k, length - 2400).wave
+        super().__init__(k.array)
+
+class Snare(Waveform):
+    def __init__(self):
+        length = seconds_to_samples(1)
+        k = WhiteNoise(length, gain = .25)
+        s = Sine(120, length)
+        k = add_waveforms(k, s)
+        k = LinearFadeIn(k, 500).wave
+        k = LinearFadeOut(k, length - 500).wave
+        super().__init__(k.array)
 
 class Scale():
     def __init__(self, unison, notes):
@@ -277,9 +321,7 @@ class LinearFadeIn(Envelope):
 
     def apply_envelope(self):
         a = self.wave.array
-        a = a - .5
         a *= self.envelope
-        a = a + .5
         self.wave.array = a
 
 class LinearFadeOut(LinearFadeIn):
@@ -296,8 +338,6 @@ signal_map = {
 class Filter:
     def apply_filter(waveform):
         return waveform
-    pass
-    # TODO take a np.array waveform as input, run a fourier transform on it, apply appropriate filtering, and return
 
 class HighPassFilter(Filter):
     def __init__(self, freq):
@@ -332,45 +372,18 @@ class LowPassFilter(Filter):
         yf[target_idx + 2: ] = 0
         return yf
 
-class Kick(Waveform):
-    def __init__(self):
-        length = seconds_to_samples(1)
-        k = WhiteNoise(length, gain = .25)
-        lp = LowPassFilter(250)
-        k.apply_filter(lp)
-        s = Sine(120, length)
-        k = add_waveforms(k, s)
-        k = LinearFadeIn(k, 2400).wave
-        k = LinearFadeOut(k, length - 2400).wave
-        super().__init__(k.array)
-
 
 if __name__ == "__main__":
     major_pentatonic = Scale(200,["1","M2","M3","5","M6","o"])
-    seq = Sequencer(16, 60)
-    csv_seq = load_csv("example.csv")
-    csv_seq.write_sequence("csv_seq.wav")
-#    seq_thread = Thread(target=csv_seq.play_sequence)
-#    seq_thread.daemon = True
-#    seq_thread.start()
-    #csv_seq.play_sequence()
-    #wf3 = seq.example()
-    #wn = WhiteNoise(6 * SAMPLE_RATE).waveform
-    sin = Sine(200, 48000)
-    sin2 = Sine(300, 48000)
-    sin = add_waveforms(sin, sin2)
-    #fft = sin.fft()
-    #sin.array = sin.ifft(fft)
-    hp = LowPassFilter(500)
-    sin.array = sin.ifft(hp.apply_filter(sin))
-    sin.write("fft.wav")
+    #seq = Sequencer(16, 60)
+    #csv_seq = load_csv("example.csv")
+    #csv_seq.write("csv_seq.wav")
+
+    loaded = LoadWav("ele.wav")
     
     k = Kick()
-    k.write("kick.wav")
-    Rest(seconds_to_samples(2)).write("REST.wav")
-    wn = WhiteNoise(int(2 * SAMPLE_RATE))
-    wn = LinearFadeIn(wn, 2 * SAMPLE_RATE).wave
-    wn.write("noise.wav")
-    wn.apply_filter(hp)
-    wn.write("noise_hp.wav")
-
+    s = Snare()
+    seq = Sequencer(17, 120)
+    print("first k")
+    seq.place_waveform(1, k)
+    seq.write("drums.wav")
