@@ -115,8 +115,11 @@ class Waveform():
         filtered_fft = filt.apply_filter(self)
         self.array = self.ifft(filtered_fft)
 
-    def apply_envelope(self, env, arg_list = []):
-        self.array = env(self.array, *arg_list).wave.array
+    def apply_envelope(self, env):
+        env_array = env.array
+        a = self.wave.array
+        a *= env_array 
+        self.wave.array = a
 
     def write(self, filename):
         wavfile.write(filename, SAMPLE_RATE, self.array) 
@@ -304,30 +307,28 @@ class Scale():
         self.scale = self.intervals * self.unison
 
 class Envelope:
-    def __init__(self, wave):
-        self.wave = wave
+    def __init__(self):
         self.generate_envelope()
-        self.apply_envelope()
+
+    def flip():
+        self.envelope = np.flip(self.envelope)
+
+    def fill(new_size):
+        larger_envelope = np.full((new_size),1)
+        self.envelope = np.concatenate((self.envelope, larger_envelope[self.envelope.size:]))
 
 class LinearFadeIn(Envelope):
-    def __init__(self, wave, samples):
-        self.samples = samples
-        super().__init__(wave)
+    def __init__(self, size):
+        self.size = size
+        super().__init__()
 
     def generate_envelope(self):
-        self.envelope = np.full((self.wave.array.size),1)
-        fade = np.arange(0, 1, 1/self.samples)
-        self.envelope = np.concatenate((fade, self.envelope[fade.size:]))
-
-    def apply_envelope(self):
-        a = self.wave.array
-        a *= self.envelope
-        self.wave.array = a
+        self.envelope = np.arange(0, 1, 1/self.size)
 
 class LinearFadeOut(LinearFadeIn):
     def generate_envelope(self):
         super().generate_envelope()
-        self.envelope = np.flip(self.envelope)
+        self.flip()
 
 signal_map = {
     "sine": Sine,
