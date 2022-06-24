@@ -121,21 +121,6 @@ class Waveform():
         a *= env_array 
         self.array = a
 
-    def apply_envelope_front(self, env):
-        a = self.array
-        env_array = np.full(a.size, 1.0)
-        env_array[:env.envelope.size] = env.envelope
-        a *= env_array 
-        self.array = a
-
-    def apply_envelope_back(self, env):
-        a = self.array
-        env_array = np.full(a.size, 1.0)
-        env_start = a.size - env.envelope.size
-        env_array[env_start:] = env.envelope
-        a *= env_array 
-        self.array = a
-        
     def write(self, filename):
         wavfile.write(filename, SAMPLE_RATE, self.array) 
 
@@ -252,7 +237,6 @@ class Sine(Oscillator):
         return wave_array 
 
 class BentSine(Oscillator):
-    # TODO: test
     def __init__(self, freq, freq2, samples, gain = 1):
         self.freq2 = freq2
         super().__init__(freq, samples, gain)
@@ -337,17 +321,15 @@ class Envelope:
 
 class ReverseEnvelope(Envelope):
     def fill(self,new_size):
-        larger_envelope = np.full((new_size),1)
-        env_array = np.full(new_size, 1.0)
-        env_array[:self.envelope.size] = np.flip(self.envelope)
-        env_array = np.flip(env_array)
+        self.envelope = np.flip(self.envelope)
+        env_array = np.flip(super().fill(new_size))
+        self.envelope = np.flip(self.envelope)
         return env_array
 
 class LinearFadeIn(Envelope):
     def __init__(self, size):
         self.size = size
         super().__init__()
-
     def generate_envelope(self):
         self.envelope = np.arange(0, 1, 1/self.size)
 
@@ -365,6 +347,20 @@ class QuadraticFadeIn(Envelope):
         self.envelope = np.array([P(t) for t in np.linspace(0, 1, self.size)])
 
 class QuadraticFadeOut(QuadraticFadeIn, ReverseEnvelope):
+    def generate_envelope(self):
+        super().generate_envelope()
+        self.flip()
+
+class IQuadraticFadeIn(Envelope):
+    def __init__(self, size):
+        self.size = size
+        super().__init__()
+    def generate_envelope(self):
+        P = lambda t: 1- t**2
+        self.envelope = np.array([P(t) for t in np.linspace(0, 1, self.size)])
+        self.flip()
+
+class IQuadraticFadeOut(IQuadraticFadeIn, ReverseEnvelope):
     def generate_envelope(self):
         super().generate_envelope()
         self.flip()
@@ -426,5 +422,7 @@ if __name__ == "__main__":
     seq.place_waveform(8,Snare())
     seq.write("drums.wav")
 
-    
+    wn = WhiteNoise(seconds_to_samples(2))
+    wn.apply_envelope(IQuadraticFadeOut(seconds_to_samples(1)))
+    wn.plot()
     
