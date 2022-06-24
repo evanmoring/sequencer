@@ -116,11 +116,26 @@ class Waveform():
         self.array = self.ifft(filtered_fft)
 
     def apply_envelope(self, env):
-        env_array = env.array
-        a = self.wave.array
+        a = self.array
+        env_array = env.fill(a.size)
         a *= env_array 
-        self.wave.array = a
+        self.array = a
 
+    def apply_envelope_front(self, env):
+        a = self.array
+        env_array = np.full(a.size, 1.0)
+        env_array[:env.envelope.size] = env.envelope
+        a *= env_array 
+        self.array = a
+
+    def apply_envelope_back(self, env):
+        a = self.array
+        env_array = np.full(a.size, 1.0)
+        env_start = a.size - env.envelope.size
+        env_array[env_start:] = env.envelope
+        a *= env_array 
+        self.array = a
+        
     def write(self, filename):
         wavfile.write(filename, SAMPLE_RATE, self.array) 
 
@@ -174,7 +189,6 @@ class Waveform():
         ax.set_xscale('log')
         ax.set_yscale('log')
         plt.show()
-
 
 class Sequencer(Waveform):
     def __init__(self, beats, bpm):
@@ -269,7 +283,6 @@ class Square(Oscillator):
 class WhiteNoise(SignalGenerator):
     def generate_waveform(self):
         return np.random.rand(self.samples)
-        
 
 class Rest(SignalGenerator):
     def generate_waveform(self):
@@ -283,18 +296,21 @@ class Kick(Waveform):
         k.apply_filter(lp)
         s = BentSine(150, 100, length)
         k = add_waveforms(k, s)
-        k = LinearFadeIn(k, 2400).wave
-        k = LinearFadeOut(k, length - 2400).wave
+        fade_in = QuadraticFadeIn(500)
+        k.apply_envelope(fade_in)
+        fade_out = QuadraticFadeOut( length - 500)
+        k.apply_envelope(fade_out)
         super().__init__(k.array)
 
 class Snare(Waveform):
     def __init__(self):
-        length = seconds_to_samples(1)
+        length = seconds_to_samples(.5)
         k = WhiteNoise(length, gain = .25)
         s = Sine(120, length)
-        k = add_waveforms(k, s)
-        k = LinearFadeIn(k, 500).wave
-        k = LinearFadeOut(k, length - 500).wave
+        fade_in = QuadraticFadeIn(500)
+        k.apply_envelope(fade_in)
+        fade_out = QuadraticFadeOut( length - 500)
+        k.apply_envelope(fade_out)
         super().__init__(k.array)
 
 class Scale():
@@ -310,12 +326,22 @@ class Envelope:
     def __init__(self):
         self.generate_envelope()
 
-    def flip():
+    def flip(self):
         self.envelope = np.flip(self.envelope)
 
-    def fill(new_size):
+    def fill(self,new_size):
         larger_envelope = np.full((new_size),1)
-        self.envelope = np.concatenate((self.envelope, larger_envelope[self.envelope.size:]))
+        env_array = np.full(new_size, 1.0)
+        env_array[:self.envelope.size] = self.envelope
+        return env_array
+
+class ReverseEnvelope(Envelope):
+    def fill(self,new_size):
+        larger_envelope = np.full((new_size),1)
+        env_array = np.full(new_size, 1.0)
+        env_array[:self.envelope.size] = np.flip(self.envelope)
+        env_array = np.flip(env_array)
+        return env_array
 
 class LinearFadeIn(Envelope):
     def __init__(self, size):
@@ -325,7 +351,20 @@ class LinearFadeIn(Envelope):
     def generate_envelope(self):
         self.envelope = np.arange(0, 1, 1/self.size)
 
-class LinearFadeOut(LinearFadeIn):
+class LinearFadeOut(LinearFadeIn, ReverseEnvelope):
+    def generate_envelope(self):
+        super().generate_envelope()
+        self.flip()
+
+class QuadraticFadeIn(Envelope):
+    def __init__(self, size):
+        self.size = size
+        super().__init__()
+    def generate_envelope(self):
+        P = lambda t: t**2
+        self.envelope = np.array([P(t) for t in np.linspace(0, 1, self.size)])
+
+class QuadraticFadeOut(QuadraticFadeIn, ReverseEnvelope):
     def generate_envelope(self):
         super().generate_envelope()
         self.flip()
@@ -373,18 +412,19 @@ class LowPassFilter(Filter):
         yf[target_idx + 2: ] = 0
         return yf
 
-
 if __name__ == "__main__":
     major_pentatonic = Scale(200,["1","M2","M3","5","M6","o"])
-    #seq = Sequencer(16, 60)
-    #csv_seq = load_csv("example.csv")
-    #csv_seq.write("csv_seq.wav")
 
-    loaded = LoadWav("ele.wav")
-    
-    k = Kick()
-    s = Snare()
-    seq = Sequencer(17, 120)
-    print("first k")
-    seq.place_waveform(1, k)
+    seq = Sequencer(16,60)
+    seq.place_waveform(1,Kick())
+    seq.place_waveform(2,Snare())
+    seq.place_waveform(3,Kick())
+    seq.place_waveform(4,Snare())
+    seq.place_waveform(5,Kick())
+    seq.place_waveform(6,Snare())
+    seq.place_waveform(7,Kick())
+    seq.place_waveform(8,Snare())
     seq.write("drums.wav")
+
+    
+    
