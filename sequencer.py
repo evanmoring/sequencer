@@ -73,15 +73,18 @@ def load_csv(filename):
 
 def process_csv_row(row, bpm):
     signal_type = signal_map[row['signal_type']] 
-    length = float(row['length'])
     start = float(row['start'])
-    gain = float(row['gain'])
-    samples = samples_from_beats(bpm, length)
+
+    arg_dict = {}
+    if 'gain' in row:
+        arg_dict['gain'] = float(row['gain'])
+    if 'length' in row:
+        length = float(row['length'])
+        arg_dict['samples'] = samples_from_beats(bpm, length)
     if 'freq' in row:
-        freq = float(row['freq'])
-        waveform = signal_type(freq, samples, gain = gain)
-    else:
-        waveform = signal_type(samples, gain = gain)
+        arg_dict['freq'] = float(row['freq'])
+    waveform = signal_type(**arg_dict)
+
     return waveform, start
 
 def samples_from_beats(bpm, beat):
@@ -98,15 +101,9 @@ def LoadWav(filename):
     
 
 class Waveform():
-    def __init__(self, array):
+    def __init__(self, array,):
         self.array = array 
         self.mutex = Lock()
-
-    def apply_bias(self):
-        self.array = self.array + .5
-
-    def remove_bias(self):
-        self.array = self.array - .5
 
     def apply_gain(self, gain):
         self.array *= gain 
@@ -185,13 +182,24 @@ class Sequencer(Waveform):
         super().__init__(array)
 
     def place_waveform(self, beat, waveform):
+        new_array = np.zeros(self.array.size)
+        first_sample = samples_from_beats(self.bpm, beat)
+        last_sample = first_sample + waveform.array.size
+        try:
+            new_array[first_sample: last_sample] = waveform.array
+            
+        except ValueError as e:
+            print("ERROR! sequence not big enough")
+        self.array = np.add(self.array, new_array)
+
+    def overwrite(self, beat, waveform):
         first_sample = samples_from_beats(self.bpm, beat)
         last_sample = first_sample + waveform.array.size
         try:
             self.array[first_sample: last_sample] = waveform.array
             
         except ValueError as e:
-            print("ERROR! sequence not big enought")
+            print("ERROR! sequence not big enough")
 
     def example(self):
         for i in range(self.beats):
@@ -273,21 +281,24 @@ class Rest(SignalGenerator):
         return np.full((self.samples),0.0)
 
 class Kick(Waveform):
-    def __init__(self):
+    def __init__(self, gain=1):
         length = seconds_to_samples(1)
-        k = WhiteNoise(length, gain = .25)
+        k = WhiteNoise(length, gain = 1)
         lp = LowPassFilter(250)
         k.apply_filter(lp)
-        s = BentSine(150, 100, length)
+        k.normalize()
+        s = BentSine(150, 100, length, gain=.5)
         k = add_waveforms(k, s)
         fade_in = QuadraticFadeIn(500)
         k.apply_envelope(fade_in)
         fade_out = QuadraticFadeOut( length - 500)
         k.apply_envelope(fade_out)
+        k.normalize()
+        k.apply_gain(gain)
         super().__init__(k.array)
 
 class Snare(Waveform):
-    def __init__(self):
+    def __init__(self, gain=1):
         length = seconds_to_samples(.5)
         k = WhiteNoise(length, gain = .25)
         s = Sine(120, length)
@@ -295,6 +306,10 @@ class Snare(Waveform):
         k.apply_envelope(fade_in)
         fade_out = QuadraticFadeOut( length - 500)
         k.apply_envelope(fade_out)
+        k.normalize()
+        k.apply_gain(.5)
+        k.apply_gain(gain)
+        
         super().__init__(k.array)
 
 class Scale():
@@ -369,6 +384,8 @@ signal_map = {
     "sine": Sine,
     "square": Square,
     "white_noise": WhiteNoise,
+    "snare": Snare,
+    "kick": Kick
 }
 
 class Filter:
@@ -410,19 +427,24 @@ class LowPassFilter(Filter):
 
 if __name__ == "__main__":
     major_pentatonic = Scale(200,["1","M2","M3","5","M6","o"])
+    k = Kick()
+    s = Snare()
 
     seq = Sequencer(16,60)
-    seq.place_waveform(1,Kick())
-    seq.place_waveform(2,Snare())
-    seq.place_waveform(3,Kick())
-    seq.place_waveform(4,Snare())
-    seq.place_waveform(5,Kick())
-    seq.place_waveform(6,Snare())
-    seq.place_waveform(7,Kick())
-    seq.place_waveform(8,Snare())
+    seq.place_waveform(1,k)
+    seq.place_waveform(2,s)
+    seq.place_waveform(3,k)
+    seq.place_waveform(4,s)
+    seq.place_waveform(5,k)
+    seq.place_waveform(6,s)
+    seq.place_waveform(7,k)
+    seq.place_waveform(8,s)
     seq.write("drums.wav")
 
     wn = WhiteNoise(seconds_to_samples(2))
-    wn.apply_envelope(IQuadraticFadeOut(seconds_to_samples(1)))
-    wn.plot()
+    #wn.apply_envelope(IQuadraticFadeOut(seconds_to_samples(1)))
+    #wn.plot()
+
+    loaded = load_csv("drums.csv")
+    loaded.write("drums.wav")
     
