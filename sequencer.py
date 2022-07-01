@@ -282,16 +282,17 @@ class Rest(SignalGenerator):
 
 class Kick(Waveform):
     def __init__(self, gain=1):
-        length = seconds_to_samples(1)
+        length = seconds_to_samples(.5)
+        peak = 200
         k = WhiteNoise(length, gain = 1)
         lp = LowPassFilter(250)
         k.apply_filter(lp)
         k.normalize()
         s = BentSine(150, 100, length, gain=.5)
         k = add_waveforms(k, s)
-        fade_in = QuadraticFadeIn(500)
+        fade_in = QuadraticFadeIn(peak)
         k.apply_envelope(fade_in)
-        fade_out = QuadraticFadeOut( length - 500)
+        fade_out = QuadraticFadeOut( length - peak)
         k.apply_envelope(fade_out)
         k.normalize()
         k.apply_gain(gain)
@@ -299,15 +300,50 @@ class Kick(Waveform):
 
 class Snare(Waveform):
     def __init__(self, gain=1):
-        length = seconds_to_samples(.5)
+        length = seconds_to_samples(.35)
+        peak = 200
         k = WhiteNoise(length, gain = .25)
         s = Sine(120, length)
-        fade_in = QuadraticFadeIn(500)
+        fade_in = QuadraticFadeIn(peak)
         k.apply_envelope(fade_in)
-        fade_out = QuadraticFadeOut( length - 500)
+        fade_out = QuadraticFadeOut( length - peak)
         k.apply_envelope(fade_out)
         k.normalize()
         k.apply_gain(.5)
+        k.apply_gain(gain)
+        
+        super().__init__(k.array)
+
+class Cymbal(Waveform):
+    def __init__(self, gain=1):
+        length = seconds_to_samples(1)
+        peak = 200
+        k = WhiteNoise(length, gain = .25)
+        hp = HighPassFilter(500)
+        k.apply_filter(hp)
+        fade_in = QuadraticFadeIn(peak)
+        k.apply_envelope(fade_in)
+        fade_out = QuadraticFadeOut( length - peak)
+        k.apply_envelope(fade_out)
+        k.normalize()
+        k.apply_gain(.25)
+        k.apply_gain(gain)
+        
+        super().__init__(k.array)
+
+class Hihat(Waveform):
+    def __init__(self, gain=1):
+        length = seconds_to_samples(.25)
+        peak = 200
+        k = WhiteNoise(length, gain = .25)
+        hp = HighPassFilter(1000)
+        k.apply_filter(hp)
+        fade_in = QuadraticFadeIn(peak)
+        k.apply_envelope(fade_in)
+        fade_out = QuadraticFadeOut( length - peak)
+        k.apply_envelope(fade_out)
+        k.normalize()
+        k.apply_gain(.25)
         k.apply_gain(gain)
         
         super().__init__(k.array)
@@ -385,7 +421,9 @@ signal_map = {
     "square": Square,
     "white_noise": WhiteNoise,
     "snare": Snare,
-    "kick": Kick
+    "kick": Kick,
+    "cymbal": Cymbal,
+    "hihat": Hihat,
 }
 
 class Filter:
@@ -445,6 +483,9 @@ if __name__ == "__main__":
     #wn.apply_envelope(IQuadraticFadeOut(seconds_to_samples(1)))
     #wn.plot()
 
-    loaded = load_csv("drums.csv")
+    loaded = load_csv("drums2.csv")
     loaded.write("drums.wav")
+
+    c = Hihat()
+    c.write("cymbal.wav")
     
