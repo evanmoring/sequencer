@@ -274,7 +274,10 @@ class Square(Oscillator):
 
 class WhiteNoise(SignalGenerator):
     def generate_waveform(self):
-        return np.random.rand(self.samples)
+        rand = np.random.rand(self.samples)
+        rand -= .5
+        return rand 
+
 
 class Rest(SignalGenerator):
     def generate_waveform(self):
@@ -465,27 +468,42 @@ class LowPassFilter(Filter):
 
 if __name__ == "__main__":
     major_pentatonic = Scale(200,["1","M2","M3","5","M6","o"])
-    k = Kick()
-    s = Snare()
+    verse_a = load_csv("drums2.csv")
+    verse_b = load_csv("drums_verse_2.csv")
+    verse_seq = Sequencer(16, 120)
+    verse_seq.place_waveform(0, verse_a)
+    verse_seq.place_waveform(8, verse_b)
+    verse_fill = load_csv("verse_fill.csv")
+    verse_fill_seq = Sequencer(16,120)
+    verse_fill_seq.place_waveform(0, verse_a)
+    verse_fill_seq.place_waveform(8, verse_fill)
+    full_verse = Sequencer(65,120)
+    full_verse.place_waveform(0, verse_seq)
+    full_verse.place_waveform(16, verse_seq)
+    full_verse.place_waveform(32, verse_seq)
+    full_verse.place_waveform(48, verse_fill_seq)
+    full_verse.write("verse.wav")
 
-    seq = Sequencer(16,60)
-    seq.place_waveform(1,k)
-    seq.place_waveform(2,s)
-    seq.place_waveform(3,k)
-    seq.place_waveform(4,s)
-    seq.place_waveform(5,k)
-    seq.place_waveform(6,s)
-    seq.place_waveform(7,k)
-    seq.place_waveform(8,s)
-    seq.write("drums.wav")
+    chorus_seq_a = Sequencer(16,120)
+    chorus_b = load_csv("chorus_b.csv")
+    chorus_b.write("chorus_b.wav")
+    chorus_seq_a.place_waveform(0, verse_a)
+    chorus_seq_a.place_waveform(8, chorus_b)
+    chorus_seq_a.write("chorus_b.wav")
 
-    wn = WhiteNoise(seconds_to_samples(2))
-    #wn.apply_envelope(IQuadraticFadeOut(seconds_to_samples(1)))
-    #wn.plot()
+    chorus_seq_b = Sequencer(32,120)
+    chorus_fill = load_csv("chorus_fill.csv")
+    chorus_seq_b.place_waveform(0, verse_a)
+    chorus_seq_b.place_waveform(8, chorus_fill)
 
-    loaded = load_csv("drums2.csv")
-    loaded.write("drums.wav")
+    full_chorus = Sequencer(80, 120)
+    full_chorus.place_waveform(0, chorus_seq_a)
+    full_chorus.place_waveform(16, chorus_seq_a)
+    full_chorus.place_waveform(32, chorus_seq_a)
+    full_chorus.place_waveform(48, chorus_seq_b)
+    full_chorus.write("full_chorus.wav")
+    full_chorus.plot()
 
-    c = Hihat()
-    c.write("cymbal.wav")
-    
+   # loaded = load_csv("drums_verse_2.csv")
+   # loaded.play()
+   # loaded.write("drums.wav")
