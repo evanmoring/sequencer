@@ -11,6 +11,7 @@ from threading import Thread, Lock
 import matplotlib.pyplot as plt
 
 rng = np.random.default_rng(12345)
+seq_bpm = 250 
 
 SAMPLE_RATE = 48000# samples / second
 BIT_DEPTH = 16
@@ -44,12 +45,14 @@ def add_waveforms(wf_a, wf_b):
     new_wf.apply_gain(.5)
     return new_wf
 
-def load_csv(filename):
+def csv_bpm(filename):
+    return load_csv(filename, seq_bpm)
+    
+def load_csv(filename, overwrite_bpm = 0):
     csv_dicts = []
     waveform_list = []
 
     with open(filename, mode='r') as csvfile:
-        reader = csv.reader(csvfile)
         reader = csv.reader(csvfile)
         temp_list = []
         for i in reader:
@@ -64,6 +67,8 @@ def load_csv(filename):
     for i in csv_dicts:
         if 'bpm' in i:
             bpm = float(i['bpm'])
+            if overwrite_bpm:
+                bpm = overwrite_bpm
             length = float(i['seq_length'])
             seq = Sequencer(length, bpm)
         else:
@@ -98,7 +103,6 @@ def beats_from_samples(bpm, samples):
 def LoadWav(filename):
     r = wavfile.read(filename)
     return Waveform(r[1])
-    
 
 class Waveform():
     def __init__(self, array,):
@@ -182,24 +186,23 @@ class Sequencer(Waveform):
         super().__init__(array)
 
     def place_waveform(self, beat, waveform):
-        new_array = np.zeros(self.array.size)
         first_sample = samples_from_beats(self.bpm, beat)
         last_sample = first_sample + waveform.array.size
-        try:
-            new_array[first_sample: last_sample] = waveform.array
-            
-        except ValueError as e:
-            print("ERROR! sequence not big enough")
+        overflow_size = last_sample - self.array.size
+        if overflow_size > 0:
+            self.array = np.pad(self.array, (0, overflow_size))
+        new_array = np.zeros(self.array.size)
+        new_array[first_sample: last_sample] = waveform.array
         self.array = np.add(self.array, new_array)
 
     def overwrite(self, beat, waveform):
         first_sample = samples_from_beats(self.bpm, beat)
         last_sample = first_sample + waveform.array.size
-        try:
-            self.array[first_sample: last_sample] = waveform.array
-            
-        except ValueError as e:
-            print("ERROR! sequence not big enough")
+        overflow_size = last_sample - self.array.size
+        if overflow_size > 0:
+            self.array = np.pad(self.array, (0, overflow_size))
+        new_array = np.zeros(self.array.size)
+        self.array[first_sample: last_sample] = waveform.array
 
     def example(self):
         for i in range(self.beats):
@@ -277,7 +280,6 @@ class WhiteNoise(SignalGenerator):
         rand = np.random.rand(self.samples)
         rand -= .5
         return rand 
-
 
 class Rest(SignalGenerator):
     def generate_waveform(self):
@@ -468,42 +470,45 @@ class LowPassFilter(Filter):
 
 if __name__ == "__main__":
     major_pentatonic = Scale(200,["1","M2","M3","5","M6","o"])
-    verse_a = load_csv("drums2.csv")
-    verse_b = load_csv("drums_verse_2.csv")
-    verse_seq = Sequencer(16, 120)
-    verse_seq.place_waveform(0, verse_a)
-    verse_seq.place_waveform(8, verse_b)
-    verse_fill = load_csv("verse_fill.csv")
-    verse_fill_seq = Sequencer(16,120)
-    verse_fill_seq.place_waveform(0, verse_a)
-    verse_fill_seq.place_waveform(8, verse_fill)
-    full_verse = Sequencer(65,120)
-    full_verse.place_waveform(0, verse_seq)
-    full_verse.place_waveform(16, verse_seq)
-    full_verse.place_waveform(32, verse_seq)
-    full_verse.place_waveform(48, verse_fill_seq)
-    full_verse.write("verse.wav")
 
-    chorus_seq_a = Sequencer(16,120)
-    chorus_b = load_csv("chorus_b.csv")
-    chorus_b.write("chorus_b.wav")
-    chorus_seq_a.place_waveform(0, verse_a)
-    chorus_seq_a.place_waveform(8, chorus_b)
-    chorus_seq_a.write("chorus_b.wav")
 
-    chorus_seq_b = Sequencer(32,120)
-    chorus_fill = load_csv("chorus_fill.csv")
-    chorus_seq_b.place_waveform(0, verse_a)
-    chorus_seq_b.place_waveform(8, chorus_fill)
-
-    full_chorus = Sequencer(80, 120)
-    full_chorus.place_waveform(0, chorus_seq_a)
-    full_chorus.place_waveform(16, chorus_seq_a)
-    full_chorus.place_waveform(32, chorus_seq_a)
-    full_chorus.place_waveform(48, chorus_seq_b)
-    full_chorus.write("full_chorus.wav")
-    full_chorus.plot()
-
-   # loaded = load_csv("drums_verse_2.csv")
-   # loaded.play()
-   # loaded.write("drums.wav")
+#    verse_a = csv_bpm("drums2.csv")
+#    verse_a.write("verse.wav")
+#    verse_b = csv_bpm("drums_verse_2.csv")
+#    verse_seq = Sequencer(16, seq_bpm)
+#    verse_seq.place_waveform(0, verse_a)
+#    verse_seq.place_waveform(8, verse_b)
+#    verse_fill = csv_bpm("verse_fill.csv")
+#    verse_fill_seq = Sequencer(16,seq_bpm)
+#    verse_fill_seq.place_waveform(0, verse_a)
+#    verse_fill_seq.place_waveform(8, verse_fill)
+#    full_verse = Sequencer(65,seq_bpm)
+#    full_verse.place_waveform(0, verse_seq)
+#    full_verse.place_waveform(16, verse_seq)
+#    full_verse.place_waveform(32, verse_seq)
+#    full_verse.place_waveform(48, verse_fill_seq)
+#    full_verse.write("verse.wav")
+#
+#    chorus_seq_a = Sequencer(16,seq_bpm)
+#    chorus_b = csv_bpm("chorus_b.csv")
+#    chorus_b.write("chorus_b.wav")
+#    chorus_seq_a.place_waveform(0, verse_a)
+#    chorus_seq_a.place_waveform(8, chorus_b)
+#    chorus_seq_a.write("chorus_b.wav")
+#
+#    chorus_seq_b = Sequencer(32,seq_bpm)
+#    chorus_fill = csv_bpm("chorus_fill.csv")
+#    chorus_seq_b.place_waveform(0, verse_a)
+#    chorus_seq_b.place_waveform(8, chorus_fill)
+#
+#    full_chorus = Sequencer(80, seq_bpm)
+#    full_chorus.place_waveform(0, chorus_seq_a)
+#    full_chorus.place_waveform(16, chorus_seq_a)
+#    full_chorus.place_waveform(32, chorus_seq_a)
+#    full_chorus.place_waveform(48, chorus_seq_b)
+#    full_chorus.write("full_chorus.wav")
+#
+#    loaded = load_csv("drums_verse_2.csv")
+#    #loaded.play()
+#    loaded.plot()
+#    loaded.write("drums.wav")
