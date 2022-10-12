@@ -55,4 +55,4 @@ class TestSequencer(unittest.TestCase):
         self.assertTrue(np.array_equal(fade_array, ex_array))
 
 if __name__ == "__main__":
-    unittest.main()
+    unittest.main(verbosity=2)
