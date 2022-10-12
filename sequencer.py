@@ -9,6 +9,7 @@ import pyaudio
 import time
 from threading import Thread, Lock
 import matplotlib.pyplot as plt
+from copy import deepcopy
 
 rng = np.random.default_rng(12345)
 seq_bpm = 250 
@@ -178,6 +179,22 @@ class Waveform():
         ax.set_xscale('log')
         ax.set_yscale('log')
         plt.show()
+
+    def convert_to_envelope(self, lp_cutoff = 20):
+        old_array = deepcopy(self.array)
+        self.normalize()
+        self.apply_gain(.5)
+        self.array += .5
+        lp = LowPassFilter(lp_cutoff)
+        self.plot_fft()
+        self.apply_filter(lp)
+        self.plot_fft()
+        self.plot()
+        envelope_array = deepcopy(self.array)
+        self.array = old_array
+        output = Envelope()
+        output.envelope = envelope_array
+        return output
 
 class Sequencer(Waveform):
     def __init__(self, beats, bpm):
@@ -382,6 +399,17 @@ class Envelope:
         env_array[:self.envelope.size] = self.envelope
         return env_array
 
+    def generate_envelope(self):
+        return None
+
+    def plot(self):
+        plt.figure(figsize = (20, 10))
+        x = np.arange(0, self.envelope.size, 1)
+        plt.subplot(211)
+        plt.plot(x, self.envelope)
+        plt.title("Generated Signal")
+        plt.show()
+
 class ReverseEnvelope(Envelope):
     def fill(self,new_size):
         self.envelope = np.flip(self.envelope)
@@ -481,3 +509,10 @@ def write_csv(file):
     wf.write(f"{file}.wav")
 
 major_pentatonic = Scale(200,["1","M2","M3","5","M6","o"])
+
+if __name__ == "__main__":
+    print("MAIN")
+    s = Sine(5, seconds_to_samples(1))
+    s.plot()
+    e = s.convert_to_envelope(200)
+    e.plot()
