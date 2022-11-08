@@ -108,6 +108,27 @@ def LoadWav(filename):
     r = wavfile.read(filename)
     return Waveform(r[1])
 
+def wf_to_envelope(wf, samples_smoothed = freq_to_wavelength(20)):
+    wf = deepcopy(wf)
+    wf.normalize()
+    wf.apply_gain(.5)
+    wf.array += .5
+    smoothed_array = smooth(wf.array, samples_smoothed)
+        
+    output = Envelope()
+    output.envelope = smoothed_array
+    return output
+
+def smooth(array, smoothing_size):
+    output_array = deepcopy(array)
+    for i in range(1,array.size):
+        if i > smoothing_size:
+            origin = i - smoothing_size
+        else: 
+            origin = 0
+        output_array[i] = np.max(array[origin:i+1])
+    return(output_array)
+
 class Waveform():
     def __init__(self, array,):
         self.array = array 
@@ -116,11 +137,11 @@ class Waveform():
     def apply_gain(self, gain):
         self.array *= gain 
 
-    def apply_filter(self, filt):
+    def apply_filter(self, filt : "Filter"):
         filtered_fft = filt.apply_filter(self)
         self.array = self.ifft(filtered_fft)
 
-    def apply_envelope(self, env):
+    def apply_envelope(self, env : "Envelope"):
         a = self.array
         env_array = env.fill(a.size)
         a *= env_array 
@@ -142,17 +163,37 @@ class Waveform():
         pass
 
     def play(self):
-        # TODO write audio in chunks
+        self.play_flag = True
         P = pyaudio.PyAudio()
         CHUNK = 1024
-        stream = P.open(rate=SAMPLE_RATE, format=pyaudio.paFloat32, channels=1, output=True)
         data = self.array.astype(np.float32).tostring()
-        while True:
-            stream.write(data)
-            time.sleep(1)
-        #stream.close() # this blocks until sound finishes playing
+        self.count = 0
 
-        P.terminate()
+        def callback(in_data, frame_count, time_info, status):
+            if not self.play:
+                P.termintate()
+                return
+            if self.count + CHUNK < self.array.size:
+                c = self.array[self.count: self.count + CHUNK]
+                self.count += CHUNK
+            else:
+                diff = (self.count + CHUNK ) % self.array.size
+                c1 = self.array[self.count :]
+                c2 = self.array[ : diff]
+                self.count = diff
+                c = np.concatenate((c1, c2))
+            return (c.astype(np.float32).tostring()  , pyaudio.paContinue)
+
+        stream = P.open(
+            rate=SAMPLE_RATE, 
+            format=pyaudio.paFloat32, 
+            frames_per_buffer=CHUNK,
+            channels=1, 
+            output=True,
+            stream_callback=callback)
+
+    def stop(self):
+        self.play_flag = False
     
     def plot(self):
         plt.figure(figsize = (20, 10))
@@ -180,22 +221,6 @@ class Waveform():
         ax.set_yscale('log')
         plt.show()
 
-    def convert_to_envelope(self, lp_cutoff = 20):
-        old_array = deepcopy(self.array)
-        self.normalize()
-        self.apply_gain(.5)
-        self.array += .5
-        lp = LowPassFilter(lp_cutoff)
-        self.plot_fft()
-        self.apply_filter(lp)
-        self.plot_fft()
-        self.plot()
-        envelope_array = deepcopy(self.array)
-        self.array = old_array
-        output = Envelope()
-        output.envelope = envelope_array
-        return output
-
 class Sequencer(Waveform):
     def __init__(self, beats, bpm):
         self.bpm = bpm
@@ -205,7 +230,7 @@ class Sequencer(Waveform):
         array = Rest(self.beats * self.beat_length).array
         super().__init__(array)
 
-    def place_waveform(self, beat, waveform):
+    def place_waveform(self, beat, waveform : Waveform):
         first_sample = samples_from_beats(self.bpm, beat)
         last_sample = first_sample + waveform.array.size
         overflow_size = last_sample - self.array.size
@@ -215,7 +240,7 @@ class Sequencer(Waveform):
         new_array[first_sample: last_sample] = waveform.array
         self.array = np.add(self.array, new_array)
 
-    def overwrite(self, beat, waveform):
+    def overwrite(self, beat, waveform : Waveform):
         first_sample = samples_from_beats(self.bpm, beat)
         last_sample = first_sample + waveform.array.size
         overflow_size = last_sample - self.array.size
@@ -393,7 +418,7 @@ class Envelope:
     def flip(self):
         self.envelope = np.flip(self.envelope)
 
-    def fill(self,new_size):
+    def fill(self, new_size):
         larger_envelope = np.full((new_size),1)
         env_array = np.full(new_size, 1.0)
         env_array[:self.envelope.size] = self.envelope
@@ -475,7 +500,7 @@ class HighPassFilter(Filter):
     def __init__(self, freq):
         self.freq = freq
         
-    def apply_filter(self, waveform):
+    def apply_filter(self, waveform : Waveform):
         N = waveform.array.size
         yf = rfft(waveform.array)
         xf = rfftfreq(N, 1 / SAMPLE_RATE)
@@ -492,7 +517,7 @@ class LowPassFilter(Filter):
     def __init__(self, freq):
         self.freq = freq
         
-    def apply_filter(self, waveform):
+    def apply_filter(self, waveform : Waveform):
         N = waveform.array.size
         yf = rfft(waveform.array)
         xf = rfftfreq(N, 1 / SAMPLE_RATE)
@@ -512,7 +537,3 @@ major_pentatonic = Scale(200,["1","M2","M3","5","M6","o"])
 
 if __name__ == "__main__":
     print("MAIN")
-    s = Sine(5, seconds_to_samples(1))
-    s.plot()
-    e = s.convert_to_envelope(200)
-    e.plot()

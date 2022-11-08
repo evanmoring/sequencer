@@ -54,5 +54,11 @@ class TestSequencer(unittest.TestCase):
         ex_array = np.array([1., 0.5, 0.])
         self.assertTrue(np.array_equal(fade_array, ex_array))
 
+    def test_smooth(self):
+        ar = np.array([1,3,2,1,5,1,1,1])
+        smoothed = (smooth(ar,2))
+        ex_array = np.array([1,3,3,3,5,5,5,1])
+        self.assertTrue(np.array_equal(smoothed, ex_array))
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
