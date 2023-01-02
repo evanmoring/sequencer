@@ -54,7 +54,6 @@ def background_task():
 
 if __name__ == "__main__":
     seq = sequencer.Sequencer(beats, bpm)
-    seq.place_waveform(1, sequencer.Hihat())
     thread = threading.Thread(target=background_task)
     thread.daemon = True
     thread.start()

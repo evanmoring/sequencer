@@ -12,7 +12,6 @@ timeline_map = {
 ks = Object.keys(timeline_map)
 for (i in ks) {
     key = ks[i]
-    console.log(key)
     v = create_timeline(key)
     timeline_map[key] = v
 }
@@ -20,7 +19,6 @@ for (i in ks) {
 function create_timeline(key){
     // create div and put a return a description of div
     tl = document.createElement("div")
-    console.log("Created timeline!")
     tl_container.append(tl)
     tl.style.border = "2px solid #aaa"
     tl.style.width = "100%"
@@ -29,14 +27,15 @@ function create_timeline(key){
     tl.style.backgroundColor = "#ccc"
     tl.addEventListener('click', timeline_clicked, true);
     tl.instrument = key
-    for (let i = 0; i < 16; i++){
+    divisions = 16
+    for (let i = 0; i < divisions; i++){
         new_div = document.createElement('div')
         new_div.style.background = "blue"
         new_div.style.position = "absolute"
         new_div.style.width = "2px"
         new_div.style.height = "100%"
         str = 100/i
-        new_div.style.left = 100*i/16 + "%"
+        new_div.style.left = 100*i/divisions + "%"
         tl.append(new_div)
     }
     tl_obj = {
@@ -45,7 +44,6 @@ function create_timeline(key){
         instrument: key, 
         rect: tl.getBoundingClientRect()
     } 
-    console.log(tl_obj)
     return tl_obj
 }
 
@@ -60,13 +58,18 @@ function clear_all(){
         drums_added = timeline_map[key]['added']
         for (ii in drums_added){
             drums_added[ii].remove()
+            drums_added.splice(0,1)
         }
-        drums_added = []
     }
 }
 
 function timeline_clicked(e) {
-    key = e.target.instrument
+    if (e.target.instrument === undefined){
+        key = e.target.parentElement.instrument
+    }
+    else{
+        key = e.target.instrument
+    }
     tl = timeline_map[key]
     drums_added = tl.added
     tl_div = tl.div
@@ -79,6 +82,8 @@ function timeline_clicked(e) {
 
     // check if click is too close to existing drums
     for (i in drums_added){
+        console.log("I IN DRUM ADDED")
+        console.log(i)
         div_x_perc = drums_added[i].x_perc
         low_limit = div_x_perc - .01
         high_limit = div_x_perc + .01
