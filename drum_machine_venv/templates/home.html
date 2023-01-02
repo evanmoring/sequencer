@@ -29,6 +29,7 @@ function printMousePos(e) {
     height = tl_rect.height
 
     x_perc = (cursorX - x_origin) / width
+    console.log(x_perc)
     y_perc = (cursorY - y_origin) / height
     new_div = document.createElement("div")
     new_div.style.background = "green"
@@ -46,7 +47,7 @@ function printMousePos(e) {
         },
         body: JSON.stringify({ 
         "type": "snare",
-        "x": x_perc / 100,
+        "x": x_perc,
         })
     })
     .then(response => response.json())
