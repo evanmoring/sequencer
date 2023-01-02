@@ -9,6 +9,12 @@ import time
 bpm = 250
 beats = 8 
 stop_flag = False
+instrument_map = {
+"snare": sequencer.Snare(),
+"hihat": sequencer.Hihat(),
+"kick": sequencer.Kick()
+}
+
 
 app = Flask(__name__)
 @app.route("/")
@@ -18,20 +24,19 @@ def hello_world():
 @app.route('/request', methods = ['POST'])
 def request_rec():
     global seq
-
-    t = request.json['type']
+    print(request.json)
+    print("ASDFD")
+    i = request.json['instrument']
     x = request.json['x']
     a = request.json['action']
-    print(t)
+
     if a  == "clear_all":
-        print("CLEAR")
         seq.clear()
-        
     if a == "remove":
-        print("TYPE IS REMOVE")
-        seq.remove_waveform(x * beats, sequencer.Snare())
+        seq.remove_waveform(x * beats, instrument_map[i])
     if a == "add":
-        seq.place_waveform(x * beats, sequencer.Snare())
+        seq.place_waveform(x * beats, instrument_map[i])
+
     return jsonify(isError= False,
                 message= "Success",
                 statusCode= 200,
@@ -44,12 +49,12 @@ def toggle_start_stop():
     else:
         seq.play()
 
-
 def background_task():
     seq.play()
 
 if __name__ == "__main__":
     seq = sequencer.Sequencer(beats, bpm)
+    seq.place_waveform(1, sequencer.Hihat())
     thread = threading.Thread(target=background_task)
     thread.daemon = True
     thread.start()

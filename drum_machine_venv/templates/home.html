@@ -1,43 +1,76 @@
 
 sdfasdf
 <div id="header">Header</div>
-<div id="timeline" style="width:100%; height:50px; position:absolute; background-color:#ccc;"> </div>
+<div id="timeline_container" style="width:100%; height:50px; position:absolute; background-color:#ccc;"> </div>
 <script>
-
-drums_added = []
-
-tl = document.getElementById("timeline")
-for (let i = 0; i < 16; i++){
-    new_div = document.createElement('div')
-    new_div.style.background = "blue"
-    new_div.style.position = "absolute"
-    new_div.style.width = "2px"
-    new_div.style.height = "100%"
-    new_div.style.left = "200px"
-    str = 100/i
-    new_div.style.left = 100*i/16 + "%"
-    tl.append(new_div)
+tl_container = document.getElementById("timeline_container")
+timeline_map = {
+    "snare": null,
+    "kick": null,
+    "hihat": null,
 }
+ks = Object.keys(timeline_map)
+for (i in ks) {
+    key = ks[i]
+    console.log(key)
+    v = create_timeline(key)
+    timeline_map[key] = v
+}
+
+function create_timeline(key){
+    // create div and put a return a description of div
+    tl = document.createElement("div")
+    console.log("Created timeline!")
+    tl_container.append(tl)
+    tl.style.border = "2px solid #aaa"
+    tl.style.width = "100%"
+    tl.style.height = "50px"
+    tl.style.position = "relative"
+    tl.style.backgroundColor = "#ccc"
+    tl.addEventListener('click', timeline_clicked, true);
+    tl.instrument = key
+    for (let i = 0; i < 16; i++){
+        new_div = document.createElement('div')
+        new_div.style.background = "blue"
+        new_div.style.position = "absolute"
+        new_div.style.width = "2px"
+        new_div.style.height = "100%"
+        str = 100/i
+        new_div.style.left = 100*i/16 + "%"
+        tl.append(new_div)
+    }
+    tl_obj = {
+        div: tl,
+        added: [],
+        instrument: key, 
+        rect: tl.getBoundingClientRect()
+    } 
+    console.log(tl_obj)
+    return tl_obj
+}
+
 clear_button = document.createElement('button')
 clear_button.onclick = function(){clear_all()}
 clear_button.innerHTML = "Clear Button"
 document.getElementById("header").append(clear_button)
 
 function clear_all(){
-    console.log("clear all")
     post_request(0,0,"clear_all")
-    console.log(drums_added)
-    for (i in drums_added){
-        console.log("removing!")
-        drums_added[i].remove()
+    for (key in timeline_map){
+        drums_added = timeline_map[key]['added']
+        for (ii in drums_added){
+            drums_added[ii].remove()
+        }
+        drums_added = []
     }
-    drums_added = []
 }
-tl_rect = tl.getBoundingClientRect()
-console.log(tl_rect)
-tl.addEventListener('click', timeline_clicked, true);
 
 function timeline_clicked(e) {
+    key = e.target.instrument
+    tl = timeline_map[key]
+    drums_added = tl.added
+    tl_div = tl.div
+    tl_rect = tl.rect
     var cursorX = e.pageX;
     x_origin = tl_rect.x
     width = tl_rect.width
@@ -53,12 +86,12 @@ function timeline_clicked(e) {
             console.log("TOO CLOSE")
             drums_added[i].remove()
             drums_added.splice(i,1)
-            post_request("snare", div_x_perc, "remove")
+            post_request(key, div_x_perc, "remove")
             return
         }
     }
 
-    new_div = document.createElement("div")
+    let new_div = document.createElement("div")
     drums_added.push(new_div)
     new_div.style.background = "green"
     new_div.style.position = "absolute"
@@ -66,14 +99,16 @@ function timeline_clicked(e) {
     new_div.style.height = "100%"
     new_div.x_perc = x_perc
     new_div.style.left = x_perc *100 + "%"
+    console.log(new_div.style.left)
     new_div.style.cursor = "pointer"
     new_div.addEventListener('click', drum_indicator_clicked, true);
-    tl.append(new_div)
-    post_request("snare", x_perc, "add")
+    tl_div.append(new_div)
+    console.log(new_div)
+    post_request(key, x_perc, "add")
     return
 }
 
-function post_request(type, x, action){
+function post_request(instrument, x, action){
     fetch('http://127.0.0.1:5000/request', {
         method: 'POST',
         headers: {
@@ -81,7 +116,7 @@ function post_request(type, x, action){
             'Content-Type': 'application/json'
         },
         body: JSON.stringify({ 
-        "type": type,
+        "instrument": instrument,
         "x": x,
         "action": action
         })

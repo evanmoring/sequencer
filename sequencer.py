@@ -245,23 +245,27 @@ class Rest(SignalGenerator):
     def generate_waveform(self):
         return np.full((self.samples),0.0)
 
+kick_array = None
 class Kick(Waveform):
     def __init__(self, gain: float=1):
-        length = seconds_to_samples(.5)
-        peak = 200
-        k = WhiteNoise(length, gain = 1)
-        lp = LowPassFilter(250)
-        k.apply_filter(lp)
-        k.normalize()
-        s = BentSine(150, 100, length, gain=.5)
-        k = add_waveforms(k, s)
-        fade_in = QuadraticFadeIn(peak)
-        k.apply_envelope(fade_in)
-        fade_out = QuadraticFadeOut( length - peak)
-        k.apply_envelope(fade_out)
-        k.normalize()
-        k.apply_gain(gain)
-        super().__init__(k.array)
+        global kick_array
+        if type(kick_array) == type(None):
+            length = seconds_to_samples(.5)
+            peak = 200
+            k = WhiteNoise(length, gain = 1)
+            lp = LowPassFilter(250)
+            k.apply_filter(lp)
+            k.normalize()
+            s = BentSine(150, 100, length, gain=.5)
+            k = add_waveforms(k, s)
+            fade_in = QuadraticFadeIn(peak)
+            k.apply_envelope(fade_in)
+            fade_out = QuadraticFadeOut( length - peak)
+            k.apply_envelope(fade_out)
+            k.normalize()
+            k.apply_gain(gain)  
+            kick_array = k.array        
+        super().__init__(deepcopy(kick_array))
 
 snare_array = None
 class Snare(Waveform):
@@ -282,7 +286,6 @@ class Snare(Waveform):
             snare_array = k.array
         
         super().__init__(deepcopy(snare_array))
-        print(self.array)
 
 class Cymbal(Waveform):
     def __init__(self, gain: float=1):
@@ -301,22 +304,28 @@ class Cymbal(Waveform):
         
         super().__init__(k.array)
 
+hihat_array = None
 class Hihat(Waveform):
     def __init__(self, gain: float=1):
-        length = seconds_to_samples(.25)
-        peak = 200
-        k = WhiteNoise(length, gain = .25)
-        hp = HighPassFilter(1000)
-        k.apply_filter(hp)
-        fade_in = QuadraticFadeIn(peak)
-        k.apply_envelope(fade_in)
-        fade_out = QuadraticFadeOut( length - peak)
-        k.apply_envelope(fade_out)
-        k.normalize()
-        k.apply_gain(.25)
-        k.apply_gain(gain)
+        global hihat_array
+        if type(hihat_array) == type(None):
+            length = seconds_to_samples(.25)
+            peak = 200
+            k = WhiteNoise(length, gain = .25)
+            hp = HighPassFilter(1000)
+            k.apply_filter(hp)
+            fade_in = QuadraticFadeIn(peak)
+            k.apply_envelope(fade_in)
+            fade_out = QuadraticFadeOut( length - peak)
+            k.apply_envelope(fade_out)
+            k.normalize()
+            k.apply_gain(.25)
+            k.apply_gain(gain)
+            print(k.array.size)
+            hihat_array = k.array
         
-        super().__init__(k.array)
+        super().__init__(deepcopy(hihat_array))
+        print("HIHAT")
 
 class Scale():
     def __init__(self, unison: float, notes: list):
