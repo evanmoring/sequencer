@@ -7,47 +7,49 @@ import sequencer
 import time
 
 bpm = 250
-beats = 16
-seq = sequencer.Sequencer(beats, bpm)
-#seq.place_waveform(4, sequencer.Snare())
-#seq.place_waveform(8, sequencer.Snare())
+beats = 8 
+stop_flag = False
 
 app = Flask(__name__)
 @app.route("/")
 def hello_world():
     return f"<p>Hello, World! {render_template('home.html')}</p>"
-#    return f"<p>Hello, World! {counter}</p>"
 
 @app.route('/request', methods = ['POST'])
 def request_rec():
-    print(request.json['type'])
-    print("X")
-    print(request.json['x'])
+    global seq
+
+    t = request.json['type']
     x = request.json['x']
-    #print(request.headers)
-    data = 0
-
-    seq.place_waveform(x * beats, sequencer.Snare())
-    print("target beat")
-    print(x * beats)
-    
-    
-
+    a = request.json['action']
+    print(t)
+    if a  == "clear_all":
+        print("CLEAR")
+        seq.clear()
+        
+    if a == "remove":
+        print("TYPE IS REMOVE")
+        seq.remove_waveform(x * beats, sequencer.Snare())
+    if a == "add":
+        seq.place_waveform(x * beats, sequencer.Snare())
     return jsonify(isError= False,
                 message= "Success",
                 statusCode= 200,
-                data= data), 200
+                data= 0), 200
+
+def toggle_start_stop():
+    global stop_flag
+    if not stop_flag:
+        seq.stop()
+    else:
+        seq.play()
+
 
 def background_task():
     seq.play()
 
-#    global counter
-#    while True:
-#        time.sleep(1)
-#        counter += 5
-        #print(counter)
-
 if __name__ == "__main__":
+    seq = sequencer.Sequencer(beats, bpm)
     thread = threading.Thread(target=background_task)
     thread.daemon = True
     thread.start()

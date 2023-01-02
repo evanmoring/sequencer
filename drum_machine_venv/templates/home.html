@@ -1,7 +1,10 @@
 
 sdfasdf
+<div id="header">Header</div>
 <div id="timeline" style="width:100%; height:50px; position:absolute; background-color:#ccc;"> </div>
 <script>
+
+drums_added = []
 
 tl = document.getElementById("timeline")
 for (let i = 0; i < 16; i++){
@@ -14,31 +17,63 @@ for (let i = 0; i < 16; i++){
     str = 100/i
     new_div.style.left = 100*i/16 + "%"
     tl.append(new_div)
+}
+clear_button = document.createElement('button')
+clear_button.onclick = function(){clear_all()}
+clear_button.innerHTML = "Clear Button"
+document.getElementById("header").append(clear_button)
 
+function clear_all(){
+    console.log("clear all")
+    post_request(0,0,"clear_all")
+    console.log(drums_added)
+    for (i in drums_added){
+        console.log("removing!")
+        drums_added[i].remove()
+    }
+    drums_added = []
 }
 tl_rect = tl.getBoundingClientRect()
 console.log(tl_rect)
-tl.addEventListener('click', printMousePos, true);
+tl.addEventListener('click', timeline_clicked, true);
 
-function printMousePos(e) {
+function timeline_clicked(e) {
     var cursorX = e.pageX;
-    var cursorY = e.pageY;
     x_origin = tl_rect.x
-    y_origin = tl_rect.y
     width = tl_rect.width
-    height = tl_rect.height
 
     x_perc = (cursorX - x_origin) / width
-    console.log(x_perc)
-    y_perc = (cursorY - y_origin) / height
+
+    // check if click is too close to existing drums
+    for (i in drums_added){
+        div_x_perc = drums_added[i].x_perc
+        low_limit = div_x_perc - .01
+        high_limit = div_x_perc + .01
+        if (x_perc > low_limit && x_perc < high_limit){
+            console.log("TOO CLOSE")
+            drums_added[i].remove()
+            drums_added.splice(i,1)
+            post_request("snare", div_x_perc, "remove")
+            return
+        }
+    }
+
     new_div = document.createElement("div")
+    drums_added.push(new_div)
     new_div.style.background = "green"
     new_div.style.position = "absolute"
-    new_div.style.width = "2px"
+    new_div.style.width = "4px"
     new_div.style.height = "100%"
+    new_div.x_perc = x_perc
     new_div.style.left = x_perc *100 + "%"
+    new_div.style.cursor = "pointer"
+    new_div.addEventListener('click', drum_indicator_clicked, true);
     tl.append(new_div)
-    console.log('added')
+    post_request("snare", x_perc, "add")
+    return
+}
+
+function post_request(type, x, action){
     fetch('http://127.0.0.1:5000/request', {
         method: 'POST',
         headers: {
@@ -46,13 +81,18 @@ function printMousePos(e) {
             'Content-Type': 'application/json'
         },
         body: JSON.stringify({ 
-        "type": "snare",
-        "x": x_perc,
+        "type": type,
+        "x": x,
+        "action": action
         })
     })
     .then(response => response.json())
     .then(response => console.log(JSON.stringify(response)))
-    
 }
+
+function drum_indicator_clicked(e){
+    console.log(e.target.style.left)
+}
+    
 //document.getElementById("timeline").innerHTML = 'test';
 </script>
