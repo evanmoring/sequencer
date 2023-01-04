@@ -15,17 +15,14 @@ instrument_map = {
 "kick": sequencer.Kick()
 }
 
-
 app = Flask(__name__)
 @app.route("/")
-def hello_world():
-    return f"<p>Hello, World! {render_template('home.html')}</p>"
+def fill_page():
+    return f"{render_template('drum_machine.html')}"
 
 @app.route('/request', methods = ['POST'])
 def request_rec():
     global seq
-    print(request.json)
-    print("ASDFD")
     i = request.json['instrument']
     x = request.json['x']
     a = request.json['action']
@@ -49,12 +46,12 @@ def toggle_start_stop():
     else:
         seq.play()
 
-def background_task():
+def sequence_thread():
     seq.play()
 
 if __name__ == "__main__":
     seq = sequencer.Sequencer(beats, bpm)
-    thread = threading.Thread(target=background_task)
+    thread = threading.Thread(target=sequence_thread)
     thread.daemon = True
     thread.start()
     app.run()

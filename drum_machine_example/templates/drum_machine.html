@@ -18,7 +18,7 @@ for (i in ks) {
 
 function create_timeline(key){
     // create div and put a return a description of div
-    tl = document.createElement("div")
+    let tl = document.createElement("div")
     tl_container.append(tl)
     tl.style.border = "2px solid #aaa"
     tl.style.width = "100%"
@@ -35,7 +35,7 @@ function create_timeline(key){
         new_div.style.width = "2px"
         new_div.style.height = "100%"
         str = 100/i
-        new_div.style.left = 100*i/divisions + "%"
+        new_div.style.left = 100*i / divisions + "%" // place evenly distributed guide lines across timeline
         tl.append(new_div)
     }
     tl_obj = {
@@ -82,8 +82,6 @@ function timeline_clicked(e) {
 
     // check if click is too close to existing drums
     for (i in drums_added){
-        console.log("I IN DRUM ADDED")
-        console.log(i)
         div_x_perc = drums_added[i].x_perc
         low_limit = div_x_perc - .01
         high_limit = div_x_perc + .01
@@ -104,11 +102,9 @@ function timeline_clicked(e) {
     new_div.style.height = "100%"
     new_div.x_perc = x_perc
     new_div.style.left = x_perc *100 + "%"
-    console.log(new_div.style.left)
     new_div.style.cursor = "pointer"
     new_div.addEventListener('click', drum_indicator_clicked, true);
     tl_div.append(new_div)
-    console.log(new_div)
     post_request(key, x_perc, "add")
     return
 }
@@ -131,7 +127,7 @@ function post_request(instrument, x, action){
 }
 
 function drum_indicator_clicked(e){
-    console.log(e.target.style.left)
+    console.log("placeholder")
 }
     
 //document.getElementById("timeline").innerHTML = 'test';

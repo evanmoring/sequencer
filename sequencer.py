@@ -31,10 +31,128 @@ intervals = {
     "M7":   15/8,
     "o":    2}
 
+def samples_to_seconds (samples: float) -> float:
+    return samples / SAMPLE_RATE
+
+def seconds_to_samples (seconds : float) -> int:
+    return int(seconds * SAMPLE_RATE)
+
+def add_waveforms(wf_a : 'Waveform', wf_b: 'Waveform') -> 'Waveform':
+    new_array = np.add(wf_a.array, wf_b.array)
+    new_wf = Waveform(new_array)
+    new_wf.apply_gain(.5)
+    return new_wf
+
+class Envelope:
+    def __init__(self):
+        self.generate_envelope()
+
+    def flip(self):
+        self.envelope = np.flip(self.envelope)
+
+    def fill(self, new_size: int) -> np.array:
+        larger_envelope = np.full((new_size),1)
+        env_array = np.full(new_size, 1.0)
+        env_array[:self.envelope.size] = self.envelope
+        return env_array
+
+    def generate_envelope(self):
+        return None
+
+    def plot(self):
+        plt.figure(figsize = (20, 10))
+        x = np.arange(0, self.envelope.size, 1)
+        plt.subplot(211)
+        plt.plot(x, self.envelope)
+        plt.title("Generated Signal")
+        plt.show()
+
+class ReverseEnvelope(Envelope):
+    def fill(self, new_size: int) -> np.array:
+        self.envelope = np.flip(self.envelope)
+        env_array = np.flip(super().fill(new_size))
+        self.envelope = np.flip(self.envelope)
+        return env_array
+
+class LinearFadeIn(Envelope):
+    def __init__(self, size: int):
+        self.size = size
+        super().__init__()
+    def generate_envelope(self):
+        self.envelope = np.arange(0, 1, 1/self.size)
+
+class LinearFadeOut(LinearFadeIn, ReverseEnvelope):
+    def generate_envelope(self):
+        super().generate_envelope()
+        self.flip()
+
+class QuadraticFadeIn(Envelope):
+    def __init__(self, size: int):
+        self.size = size
+        super().__init__()
+    def generate_envelope(self):
+        P = lambda t: t**2
+        self.envelope = np.array([P(t) for t in np.linspace(0, 1, self.size)])
+
+class QuadraticFadeOut(QuadraticFadeIn, ReverseEnvelope):
+    def generate_envelope(self):
+        super().generate_envelope()
+        self.flip()
+
+class IQuadraticFadeIn(Envelope):
+    def __init__(self, size: int):
+        self.size = size
+        super().__init__()
+    def generate_envelope(self):
+        P = lambda t: 1- t**2
+        self.envelope = np.array([P(t) for t in np.linspace(0, 1, self.size)])
+        self.flip()
+
+class IQuadraticFadeOut(IQuadraticFadeIn, ReverseEnvelope):
+    def generate_envelope(self):
+        super().generate_envelope()
+        self.flip()
+
+class Filter:
+    def apply_filter(waveform: 'Waveform') -> 'Waveform':
+        return waveform
+
+class HighPassFilter(Filter):
+    def __init__(self, freq: float):
+        self.freq = freq
+        
+    def apply_filter(self, waveform : 'Waveform') -> np.ndarray:
+        N = waveform.array.size
+        yf = rfft(waveform.array)
+        xf = rfftfreq(N, 1 / SAMPLE_RATE)
+
+        points_per_freq = len(xf) / (SAMPLE_RATE / 2)
+
+        target_idx = int(points_per_freq * self.freq)
+        yf = rfft(waveform.array)
+        yf[0: target_idx + 2] = 0
+        xf = rfftfreq(N, 1 / SAMPLE_RATE)
+        return yf
+
+class LowPassFilter(Filter):
+    def __init__(self, freq: float) -> np.ndarray:
+        self.freq = freq
+        
+    def apply_filter(self, waveform : 'Waveform'):
+        N = waveform.array.size
+        yf = rfft(waveform.array)
+        xf = rfftfreq(N, 1 / SAMPLE_RATE)
+
+        points_per_freq = len(xf) / (SAMPLE_RATE / 2)
+
+        target_idx = int(points_per_freq * self.freq)
+        yf = rfft(waveform.array)
+        yf[target_idx + 2: ] = 0
+        return yf
+
 class Waveform():
-    def __init__(self, array: np.array,):
+    def __init__(self, array: np.array):
         self.array = array 
-        self.mutex = Lock()
 
     def clear(self):
         self.array = np.zeros(self.array.size)
@@ -65,7 +183,6 @@ class Waveform():
             gain_factor = abs(a_min)
         gain = 1/gain_factor
         self.apply_gain(gain)
-        pass
 
     def play(self):
         self.play_flag = True
@@ -73,7 +190,6 @@ class Waveform():
         self.CHUNK = 1024
         data = self.array.astype(np.float32).tostring()
         self.count = 0
-
 
         stream = self.player.open(
             rate=SAMPLE_RATE, 
@@ -147,7 +263,7 @@ class Sequencer(Waveform):
         self.array = np.add(self.array, new_array)
 
     def remove_waveform(self, beat: float, waveform : Waveform):
-        print("WF Removed")
+    # TODO write test for this
         waveform.apply_gain(-1)
         self.place_waveform(beat,waveform)
 
@@ -245,87 +361,78 @@ class Rest(SignalGenerator):
     def generate_waveform(self):
         return np.full((self.samples),0.0)
 
-kick_array = None
 class Kick(Waveform):
-    def __init__(self, gain: float=1):
-        global kick_array
-        if type(kick_array) == type(None):
-            length = seconds_to_samples(.5)
-            peak = 200
-            k = WhiteNoise(length, gain = 1)
-            lp = LowPassFilter(250)
-            k.apply_filter(lp)
-            k.normalize()
-            s = BentSine(150, 100, length, gain=.5)
-            k = add_waveforms(k, s)
-            fade_in = QuadraticFadeIn(peak)
-            k.apply_envelope(fade_in)
-            fade_out = QuadraticFadeOut( length - peak)
-            k.apply_envelope(fade_out)
-            k.normalize()
-            k.apply_gain(gain)  
-            kick_array = k.array        
-        super().__init__(deepcopy(kick_array))
+    length = seconds_to_samples(.5)
+    peak = 200
+    k = WhiteNoise(length, gain = 1)
+    lp = LowPassFilter(250)
+    k.apply_filter(lp)
+    k.normalize()
+    s = BentSine(150, 100, length, gain=.5)
+    k = add_waveforms(k, s)
+    fade_in = QuadraticFadeIn(peak)
+    k.apply_envelope(fade_in)
+    fade_out = QuadraticFadeOut( length - peak)
+    k.apply_envelope(fade_out)
+    k.normalize()
+    cached_array = k.array        
 
-snare_array = None
-class Snare(Waveform):
     def __init__(self, gain: float=1):
-        global snare_array
-        if type(snare_array) == type(None):
-            length = seconds_to_samples(.35)
-            peak = 200
-            k = WhiteNoise(length, gain = .25)
-            s = Sine(120, length)
-            fade_in = QuadraticFadeIn(peak)
-            k.apply_envelope(fade_in)
-            fade_out = QuadraticFadeOut( length - peak)
-            k.apply_envelope(fade_out)
-            k.normalize()
-            k.apply_gain(.5)
-            k.apply_gain(gain)
-            snare_array = k.array
-        
-        super().__init__(deepcopy(snare_array))
+        super().__init__(deepcopy(self.cached_array))
+        self.apply_gain(gain)  
+
+class Snare(Waveform):
+    length = seconds_to_samples(.35)
+    peak = 200
+    k = WhiteNoise(length, gain = .25)
+    s = Sine(120, length)
+    fade_in = QuadraticFadeIn(peak)
+    k.apply_envelope(fade_in)
+    fade_out = QuadraticFadeOut( length - peak)
+    k.apply_envelope(fade_out)
+    k.normalize()
+    k.apply_gain(.5)
+    cached_array = k.array
+
+    def __init__(self, gain: float=1):
+        super().__init__(deepcopy(self.cached_array))
+        self.apply_gain(gain)
 
 class Cymbal(Waveform):
-    def __init__(self, gain: float=1):
-        length = seconds_to_samples(1)
-        peak = 200
-        k = WhiteNoise(length, gain = .25)
-        hp = HighPassFilter(500)
-        k.apply_filter(hp)
-        fade_in = QuadraticFadeIn(peak)
-        k.apply_envelope(fade_in)
-        fade_out = QuadraticFadeOut( length - peak)
-        k.apply_envelope(fade_out)
-        k.normalize()
-        k.apply_gain(.25)
-        k.apply_gain(gain)
+    length = seconds_to_samples(1)
+    peak = 200
+    k = WhiteNoise(length, gain = .25)
+    hp = HighPassFilter(500)
+    k.apply_filter(hp)
+    fade_in = QuadraticFadeIn(peak)
+    k.apply_envelope(fade_in)
+    fade_out = QuadraticFadeOut( length - peak)
+    k.apply_envelope(fade_out)
+    k.normalize()
+    k.apply_gain(.25)
+    cached_array = k.array
         
-        super().__init__(k.array)
+    def __init__(self, gain: float=1):
+        super().__init__(self.cached_array)
+        self.apply_gain(gain)
 
-hihat_array = None
 class Hihat(Waveform):
+    length = seconds_to_samples(.25)
+    peak = 200
+    k = WhiteNoise(length, gain = .25)
+    hp = HighPassFilter(1000)
+    k.apply_filter(hp)
+    fade_in = QuadraticFadeIn(peak)
+    k.apply_envelope(fade_in)
+    fade_out = QuadraticFadeOut( length - peak)
+    k.apply_envelope(fade_out)
+    k.normalize()
+    k.apply_gain(.25)
+    cached_array = k.array
+
     def __init__(self, gain: float=1):
-        global hihat_array
-        if type(hihat_array) == type(None):
-            length = seconds_to_samples(.25)
-            peak = 200
-            k = WhiteNoise(length, gain = .25)
-            hp = HighPassFilter(1000)
-            k.apply_filter(hp)
-            fade_in = QuadraticFadeIn(peak)
-            k.apply_envelope(fade_in)
-            fade_out = QuadraticFadeOut( length - peak)
-            k.apply_envelope(fade_out)
-            k.normalize()
-            k.apply_gain(.25)
-            k.apply_gain(gain)
-            print(k.array.size)
-            hihat_array = k.array
-        
-        super().__init__(deepcopy(hihat_array))
-        print("HIHAT")
+        super().__init__(deepcopy(self.cached_array))
+        self.apply_gain(gain)
 
 class Scale():
     def __init__(self, unison: float, notes: list):
@@ -335,76 +442,6 @@ class Scale():
             self.intervals.append(intervals[i])
         self.intervals = np.array(self.intervals)
         self.scale = self.intervals * self.unison
-
-class Envelope:
-    def __init__(self):
-        self.generate_envelope()
-
-    def flip(self):
-        self.envelope = np.flip(self.envelope)
-
-    def fill(self, new_size: int) -> np.array:
-        larger_envelope = np.full((new_size),1)
-        env_array = np.full(new_size, 1.0)
-        env_array[:self.envelope.size] = self.envelope
-        return env_array
-
-    def generate_envelope(self):
-        return None
-
-    def plot(self):
-        plt.figure(figsize = (20, 10))
-        x = np.arange(0, self.envelope.size, 1)
-        plt.subplot(211)
-        plt.plot(x, self.envelope)
-        plt.title("Generated Signal")
-        plt.show()
-
-class ReverseEnvelope(Envelope):
-    def fill(self, new_size: int) -> np.array:
-        self.envelope = np.flip(self.envelope)
-        env_array = np.flip(super().fill(new_size))
-        self.envelope = np.flip(self.envelope)
-        return env_array
-
-class LinearFadeIn(Envelope):
-    def __init__(self, size: int):
-        self.size = size
-        super().__init__()
-    def generate_envelope(self):
-        self.envelope = np.arange(0, 1, 1/self.size)
-
-class LinearFadeOut(LinearFadeIn, ReverseEnvelope):
-    def generate_envelope(self):
-        super().generate_envelope()
-        self.flip()
-
-class QuadraticFadeIn(Envelope):
-    def __init__(self, size: int):
-        self.size = size
-        super().__init__()
-    def generate_envelope(self):
-        P = lambda t: t**2
-        self.envelope = np.array([P(t) for t in np.linspace(0, 1, self.size)])
-
-class QuadraticFadeOut(QuadraticFadeIn, ReverseEnvelope):
-    def generate_envelope(self):
-        super().generate_envelope()
-        self.flip()
-
-class IQuadraticFadeIn(Envelope):
-    def __init__(self, size: int):
-        self.size = size
-        super().__init__()
-    def generate_envelope(self):
-        P = lambda t: 1- t**2
-        self.envelope = np.array([P(t) for t in np.linspace(0, 1, self.size)])
-        self.flip()
-
-class IQuadraticFadeOut(IQuadraticFadeIn, ReverseEnvelope):
-    def generate_envelope(self):
-        super().generate_envelope()
-        self.flip()
 
 signal_map = {
     "sine": Sine,
@@ -417,63 +454,12 @@ signal_map = {
     "pent": Pentatonic,
 }
 
-class Filter:
-    def apply_filter(waveform: Waveform) -> Waveform:
-        return waveform
-
-class HighPassFilter(Filter):
-    def __init__(self, freq: float):
-        self.freq = freq
-        
-    def apply_filter(self, waveform : Waveform) -> np.ndarray:
-        N = waveform.array.size
-        yf = rfft(waveform.array)
-        xf = rfftfreq(N, 1 / SAMPLE_RATE)
-
-        points_per_freq = len(xf) / (SAMPLE_RATE / 2)
-
-        target_idx = int(points_per_freq * self.freq)
-        yf = rfft(waveform.array)
-        yf[0: target_idx + 2] = 0
-        xf = rfftfreq(N, 1 / SAMPLE_RATE)
-        return yf
-
-class LowPassFilter(Filter):
-    def __init__(self, freq: float) -> np.ndarray:
-        self.freq = freq
-        
-    def apply_filter(self, waveform : Waveform):
-        N = waveform.array.size
-        yf = rfft(waveform.array)
-        xf = rfftfreq(N, 1 / SAMPLE_RATE)
-
-        points_per_freq = len(xf) / (SAMPLE_RATE / 2)
-
-        target_idx = int(points_per_freq * self.freq)
-        yf = rfft(waveform.array)
-        yf[target_idx + 2: ] = 0
-        return yf
-
 def write_csv(file):
     wf = csv_bpm(f"{file}.csv")
     wf.write(f"{file}.wav")
 
-def add_waveforms(wf_a : Waveform, wf_b: Waveform) -> Waveform:
-    new_array = np.add(wf_a.array, wf_b.array)
-    new_wf = Waveform(new_array)
-    new_wf.apply_gain(.5)
-    return new_wf
-
-def samples_to_seconds (samples: float) -> float:
-    return samples / SAMPLE_RATE
-
-def seconds_to_samples (seconds : float) -> int:
-    return int(seconds * SAMPLE_RATE)
-
 def freq_to_wavelength (frequency : float) -> int:
     return floor(SAMPLE_RATE / frequency)
-
-
 
 def csv_bpm(filename: str) -> Sequencer:
     return load_csv(filename, seq_bpm)
@@ -532,7 +518,7 @@ def beats_from_samples(bpm: float, samples: int) -> float:
     beats = (samples * bpm) / (60 * SAMPLE_RATE)
     return beats
 
-def LoadWav(filename: str) -> Waveform:
+def load_wav(filename: str) -> Waveform:
     r = wavfile.read(filename)
     return Waveform(r[1])
 
