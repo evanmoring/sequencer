@@ -118,45 +118,73 @@ class Filter:
         return waveform
 
 class HighPassFilter(Filter):
-    def __init__(self, freq: float):
-        self.freq = freq
-        
-    def apply_filter(self, waveform : 'Waveform') -> np.ndarray:
-        N = waveform.array.size
-        yf = rfft(waveform.array)
-        xf = rfftfreq(N, 1 / SAMPLE_RATE)
-
-        points_per_freq = len(xf) / (SAMPLE_RATE / 2)
-
-        target_idx = int(points_per_freq * self.freq)
-        yf = rfft(waveform.array)
-        yf[0: target_idx + 2] = 0
-        xf = rfftfreq(N, 1 / SAMPLE_RATE)
-        return yf
-
-class LowPassFilter(Filter):
     def __init__(self, freq: int, period: int = 0, gain: float = 0) -> np.ndarray:
         # period in octaves, gain of .5 would half the signal per frequency 
         self.freq = freq
         self.period = period
         self.gain = gain
         
-    def apply_filter(self, waveform : 'Waveform'):
-        # TODO use target idx instead of frequency, rename freq ints
+    def apply_filter(self, waveform : 'Waveform') -> np.ndarray:
         N = waveform.array.size
         yf = rfft(waveform.array)
         xf = rfftfreq(N, 1 / SAMPLE_RATE)
-        # get the log off all integers in the frequency band
-        freq_ints = np.log2(np.arange(len(xf)))
-        g = np.full(len(freq_ints), self.gain)
-        # get the gain to the power of the log of all integers in the freq band
-        freq_ints = g ** freq_ints
-        # divide by the value at the knee frequency so its gain will be 1
-        freq_ints /= freq_ints[self.freq]
-        freq_ints[:self.freq] = 1
         points_per_freq = len(xf) / (SAMPLE_RATE / 2)
-        target_idx = int(points_per_freq * self.freq)
-        yf *= freq_ints
+        freq_idx = int(self.freq)
+
+        # take log of integers corresponding to frequencies to apply gain to
+        freq_gains = np.arange(freq_idx)
+        freq_gains[0] = 1
+        freq_gains = np.emath.logn(self.period*2, freq_gains)
+        g = np.full(len(freq_gains), self.gain)
+        # raise the gain to the power of the number of periods
+        freq_gains = g ** freq_gains
+        freq_gains[0] = 1
+        # gain for knee frequency should be 1. Scale other freqs to match
+        freq_gains /= freq_gains[freq_idx-1]
+        freq_gains = np.reciprocal(freq_gains)
+        yf[:freq_idx] *= freq_gains
+        return yf
+
+class BandPassFilter(Filter):
+    def __init__(self, freq: int, period: int = 0, gain: float = 0, width: float = 0) -> np.ndarray:
+        # period in octaves, gain of .5 would half the signal per frequency, width in octaves
+        self.freq = freq
+        self.period = period
+        self.gain = gain
+        self.width = width
+        
+    def apply_filter(self, waveform : 'Waveform') -> np.ndarray:
+        right_knee = self.freq * (2**(.5 * self.width)) 
+        left_knee = self.freq * (1/(2**(.5 * self.width))) 
+        wf = waveform
+        lp = LowPassFilter(left_knee, self.period, self.gain)
+        hp = HighPassFilter(right_knee, self.period, self.gain)
+        a = lp.apply_filter(wf)
+        b = hp.apply_filter(wf)
+        a *= b
+        return a
+
+class LowPassFilter(Filter):
+    def __init__(self, freq: int, period: int = 1, gain: float = 0) -> np.ndarray:
+        # period in octaves, gain of .5 would half the signal per frequency 
+        self.freq = freq
+        self.period = period
+        self.gain = gain
+        
+    def apply_filter(self, waveform : 'Waveform'):
+        N = waveform.array.size
+        yf = rfft(waveform.array)
+        xf = rfftfreq(N, 1 / SAMPLE_RATE)
+        points_per_freq = len(xf) / (SAMPLE_RATE / 2)
+        freq_idx = int(self.freq)
+
+        freq_gains = np.arange(1,len(xf), dtype = np.float16)
+        freq_gains = freq_gains / 500
+        freq_gains = np.emath.logn(2, freq_gains)
+        freq_gain = freq_gains / self.freq
+        g = np.full(len(freq_gains[freq_idx:]), self.gain)
+        freq_gains[freq_idx:] =  g ** freq_gains[freq_idx:]
+        yf[freq_idx+1:] *= freq_gains[freq_idx:]
         return yf
 
 class Waveform():
@@ -240,14 +268,16 @@ class Waveform():
     def ifft(self, fft: np.ndarray) -> np.ndarray:
         return np.fft.irfft(fft, n=self.array.size)
 
-    def plot_fft(self, log: Bool = False):
+    def plot_fft(self, log_x: bool = False, log_y: bool = False):
         fig,ax = plt.subplots()
         yf = self.fft()
         xf = rfftfreq(self.array.size, 1 / SAMPLE_RATE)
 
-        plt.plot(xf[0:3000], np.abs(yf[0:3000]))
-        if log:
+        #plt.plot(xf[0:3000], np.abs(yf[0:3000]))
+        plt.plot(xf, np.abs(yf))
+        if log_x:
             ax.set_xscale('log')
+        if log_y:
             ax.set_yscale('log')
         plt.show()
 
@@ -553,9 +583,13 @@ major_pentatonic = Scale(200,["1","M2","M3","5","M6","o"])
 
 if __name__ == "__main__":
     w = WhiteNoise(48000)
-    w.plot_fft()
     w.write("before.wav")
-    lp = LowPassFilter(500, gain = .01)
-    w.apply_filter(lp)
+    freq = 500
+    hp = HighPassFilter(freq, period = 1, gain = .5)
+    lp = LowPassFilter(freq, period = 1, gain = .5)
+    bp = BandPassFilter(freq, period = 1, gain = .5)
+    
+    w.apply_filter(bp)
     w.write("after.wav")
+    w.plot_fft(log_x=True)
     w.plot_fft()
