@@ -135,19 +135,28 @@ class HighPassFilter(Filter):
         return yf
 
 class LowPassFilter(Filter):
-    def __init__(self, freq: float) -> np.ndarray:
+    def __init__(self, freq: int, period: int = 0, gain: float = 0) -> np.ndarray:
+        # period in octaves, gain of .5 would half the signal per frequency 
         self.freq = freq
+        self.period = period
+        self.gain = gain
         
     def apply_filter(self, waveform : 'Waveform'):
+        # TODO use target idx instead of frequency, rename freq ints
         N = waveform.array.size
         yf = rfft(waveform.array)
         xf = rfftfreq(N, 1 / SAMPLE_RATE)
-
+        # get the log off all integers in the frequency band
+        freq_ints = np.log2(np.arange(len(xf)))
+        g = np.full(len(freq_ints), self.gain)
+        # get the gain to the power of the log of all integers in the freq band
+        freq_ints = g ** freq_ints
+        # divide by the value at the knee frequency so its gain will be 1
+        freq_ints /= freq_ints[self.freq]
+        freq_ints[:self.freq] = 1
         points_per_freq = len(xf) / (SAMPLE_RATE / 2)
-
         target_idx = int(points_per_freq * self.freq)
-        yf = rfft(waveform.array)
-        yf[target_idx + 2: ] = 0
+        yf *= freq_ints
         return yf
 
 class Waveform():
@@ -231,16 +240,15 @@ class Waveform():
     def ifft(self, fft: np.ndarray) -> np.ndarray:
         return np.fft.irfft(fft, n=self.array.size)
 
-    def plot_fft(self):
+    def plot_fft(self, log: Bool = False):
         fig,ax = plt.subplots()
         yf = self.fft()
         xf = rfftfreq(self.array.size, 1 / SAMPLE_RATE)
-        ax.set_yscale('log')
-        ax.set_yscale('log')
 
         plt.plot(xf[0:3000], np.abs(yf[0:3000]))
-        ax.set_xscale('log')
-        ax.set_yscale('log')
+        if log:
+            ax.set_xscale('log')
+            ax.set_yscale('log')
         plt.show()
 
 class Sequencer(Waveform):
@@ -365,7 +373,7 @@ class Kick(Waveform):
     length = seconds_to_samples(.5)
     peak = 200
     k = WhiteNoise(length, gain = 1)
-    lp = LowPassFilter(250)
+    lp = LowPassFilter(250, gain = .5)
     k.apply_filter(lp)
     k.normalize()
     s = BentSine(150, 100, length, gain=.5)
@@ -442,7 +450,6 @@ class Scale():
             self.intervals.append(intervals[i])
         self.intervals = np.array(self.intervals)
         self.scale = self.intervals * self.unison
-
 signal_map = {
     "sine": Sine,
     "square": Square,
@@ -453,7 +460,6 @@ signal_map = {
     "hihat": Hihat,
     "pent": Pentatonic,
 }
-
 def write_csv(file):
     wf = csv_bpm(f"{file}.csv")
     wf.write(f"{file}.wav")
@@ -546,5 +552,10 @@ def smooth(array: np.array, smoothing_size: int) -> np.array:
 major_pentatonic = Scale(200,["1","M2","M3","5","M6","o"])
 
 if __name__ == "__main__":
-    s = Cymbal()
-    print("MAIN")
+    w = WhiteNoise(48000)
+    w.plot_fft()
+    w.write("before.wav")
+    lp = LowPassFilter(500, gain = .01)
+    w.apply_filter(lp)
+    w.write("after.wav")
+    w.plot_fft()
