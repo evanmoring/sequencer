@@ -1,14 +1,13 @@
+
 import numpy as np
 from numpy import pi 
 from math import floor
 from scipy.io import wavfile
 from scipy.fftpack import  rfftfreq, rfft, irfft
 import csv
-import pandas as pd
 import pyaudio
 import time
 from threading import Thread, Lock
-import matplotlib.pyplot as plt
 from copy import deepcopy
 
 rng = np.random.default_rng(12345)
@@ -60,6 +59,7 @@ class Envelope:
         return None
 
     def plot(self):
+        import matplotlib.pyplot as plt
         plt.figure(figsize = (20, 10))
         x = np.arange(0, self.envelope.size, 1)
         plt.subplot(211)
@@ -263,6 +263,7 @@ class Waveform():
         self.play_flag = False
     
     def plot(self):
+        import matplotlib.pyplot as plt
         plt.figure(figsize = (20, 10))
         x = np.arange(0, self.array.size, 1)
         plt.subplot(211)
@@ -277,6 +278,7 @@ class Waveform():
         return np.fft.irfft(fft, n=self.array.size)
 
     def plot_fft(self, log_x: bool = False, log_y: bool = False, band: list  = [20,20000]):
+        import matplotlib.pyplot as plt
         fig,ax = plt.subplots()
         yf = self.fft()
         xf = rfftfreq(self.array.size, 1 / SAMPLE_RATE)
@@ -407,79 +409,6 @@ class Rest(SignalGenerator):
     def generate_waveform(self):
         return np.full((self.samples),0.0)
 
-class Kick(Waveform):
-    length = seconds_to_samples(.5)
-    peak = 200
-    k = WhiteNoise(length, gain = 1)
-    lp = LowPassFilter(250, gain = .5)
-    k.apply_filter(lp)
-    k.normalize()
-    s = BentSine(150, 100, length, gain=.5)
-    k = add_waveforms(k, s)
-    fade_in = QuadraticFadeIn(peak)
-    k.apply_envelope(fade_in)
-    fade_out = QuadraticFadeOut( length - peak)
-    k.apply_envelope(fade_out)
-    k.normalize()
-    cached_array = k.array        
-
-    def __init__(self, gain: float=1):
-        super().__init__(deepcopy(self.cached_array))
-        self.apply_gain(gain)  
-
-class Snare(Waveform):
-    length = seconds_to_samples(.35)
-    peak = 200
-    k = WhiteNoise(length, gain = .25)
-    s = Sine(120, length)
-    fade_in = QuadraticFadeIn(peak)
-    k.apply_envelope(fade_in)
-    fade_out = QuadraticFadeOut( length - peak)
-    k.apply_envelope(fade_out)
-    k.normalize()
-    k.apply_gain(.5)
-    cached_array = k.array
-
-    def __init__(self, gain: float=1):
-        super().__init__(deepcopy(self.cached_array))
-        self.apply_gain(gain)
-
-class Cymbal(Waveform):
-    length = seconds_to_samples(1)
-    peak = 200
-    k = WhiteNoise(length, gain = .25)
-    hp = HighPassFilter(500)
-    k.apply_filter(hp)
-    fade_in = QuadraticFadeIn(peak)
-    k.apply_envelope(fade_in)
-    fade_out = QuadraticFadeOut( length - peak)
-    k.apply_envelope(fade_out)
-    k.normalize()
-    k.apply_gain(.25)
-    cached_array = k.array
-        
-    def __init__(self, gain: float=1):
-        super().__init__(self.cached_array)
-        self.apply_gain(gain)
-
-class Hihat(Waveform):
-    length = seconds_to_samples(.25)
-    peak = 200
-    k = WhiteNoise(length, gain = .25)
-    hp = HighPassFilter(1000)
-    k.apply_filter(hp)
-    fade_in = QuadraticFadeIn(peak)
-    k.apply_envelope(fade_in)
-    fade_out = QuadraticFadeOut( length - peak)
-    k.apply_envelope(fade_out)
-    k.normalize()
-    k.apply_gain(.25)
-    cached_array = k.array
-
-    def __init__(self, gain: float=1):
-        super().__init__(deepcopy(self.cached_array))
-        self.apply_gain(gain)
-
 class Scale():
     def __init__(self, unison: float, notes: list):
         self.unison = unison 
@@ -488,16 +417,6 @@ class Scale():
             self.intervals.append(intervals[i])
         self.intervals = np.array(self.intervals)
         self.scale = self.intervals * self.unison
-signal_map = {
-    "sine": Sine,
-    "square": Square,
-    "white_noise": WhiteNoise,
-    "snare": Snare,
-    "kick": Kick,
-    "cymbal": Cymbal,
-    "hihat": Hihat,
-    "pent": Pentatonic,
-}
 def write_csv(file):
     wf = csv_bpm(f"{file}.csv")
     wf.write(f"{file}.wav")
@@ -587,6 +506,24 @@ def smooth(array: np.array, smoothing_size: int) -> np.array:
         output_array[i] = np.max(array[origin:i+1])
     return(output_array)
 
+def sigmoid_compressor(wf: Waveform, threshold: float, peak: float):
+    diff = peak - threshold
+    a = np.copy(wf.array)
+    for i, val in enumerate(new):
+        if abs(val) > threshold:
+            neg = 1
+            if (val < 0):
+                neg = -1
+            n = abs(val) - threshold
+            n = n / diff
+            # sigmoid function
+            n = (1 / (1 + np.exp(-n)))
+            n = n * diff
+            n += threshold
+            n *= neg
+            a[i] = n
+    return a
+
 major_pentatonic = Scale(200,["1","M2","M3","5","M6","o"])
 
 def formant(samples: int, formant_a: int, formant_b: int):
@@ -617,4 +554,7 @@ def formant(samples: int, formant_a: int, formant_b: int):
 if __name__ == "__main__":
     fu = formant(48000, 400, 1100)
     fu.write("u.wav")
-    fu.plot_fft()
+    w = Square(100, 48000)
+#    w.array = sigmoid_compressor(w, .5, .7)
+    print(max(w.array)) 
+    w.write('test3.wav')
