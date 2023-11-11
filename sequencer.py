@@ -509,7 +509,7 @@ def smooth(array: np.array, smoothing_size: int) -> np.array:
 def sigmoid_compressor(wf: Waveform, threshold: float, peak: float):
     diff = peak - threshold
     a = np.copy(wf.array)
-    for i, val in enumerate(new):
+    for i, val in enumerate(a):
         if abs(val) > threshold:
             neg = 1
             if (val < 0):
@@ -552,9 +552,9 @@ def formant(samples: int, formant_a: int, formant_b: int):
     return o
 
 if __name__ == "__main__":
-    fu = formant(48000, 400, 1100)
-    fu.write("u.wav")
-    w = Square(100, 48000)
-#    w.array = sigmoid_compressor(w, .5, .7)
-    print(max(w.array)) 
-    w.write('test3.wav')
+    #fu = formant(48000, 400, 1100)
+    #fu.write("u.wav")
+    w = Sine(100, 48000)
+    w.write("sine")
+    #w.array = sigmoid_compressor(w, .5, .7)
+    #w.plot_fft(1, 1)
