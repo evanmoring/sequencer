@@ -518,7 +518,8 @@ def sigmoid_compressor(wf: Waveform, threshold: float, peak: float):
             n = n / diff
             # sigmoid function
             n = (1 / (1 + np.exp(-n)))
-            n = n * diff
+            n -= .5 
+            n = n * diff * 2
             n += threshold
             n *= neg
             a[i] = n
