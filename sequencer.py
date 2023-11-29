@@ -1,7 +1,7 @@
 
 import numpy as np
 from numpy import pi 
-from math import floor
+from math import floor, sqrt
 from scipy.io import wavfile
 from scipy.fftpack import  rfftfreq, rfft, irfft
 import csv
@@ -552,10 +552,26 @@ def formant(samples: int, formant_a: int, formant_b: int):
     #o = add_waveforms(o,c)
     return o
 
+def generate_sweep(center_freq: float, 
+                   factor: float, 
+                   seconds_per_freq: float = 1) -> 'Waveform': 
+
+    l = [center_freq]
+    lower = center_freq
+    upper = center_freq
+    while lower / factor > 20:
+        lower /= factor
+        l.append(lower)
+    while upper * factor < 20000:
+        upper *= factor
+        l.append(upper)
+    l.sort()
+    print(l)
+    s = Sequencer(len(l) * seconds_per_freq, 60)
+    for i, freq in enumerate(l):
+        sin = Sine(freq, seconds_to_samples(seconds_per_freq))
+        s.place_waveform(i, sin)
+    s.write("sweep.wav")
+
 if __name__ == "__main__":
-    #fu = formant(48000, 400, 1100)
-    #fu.write("u.wav")
-    w = Sine(100, 48000)
-    w.write("sine")
-    #w.array = sigmoid_compressor(w, .5, .7)
-    #w.plot_fft(1, 1)
+    generate_sweep(1000, sqrt(sqrt(2)))
