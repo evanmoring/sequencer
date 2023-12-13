@@ -13,7 +13,7 @@ from copy import deepcopy
 rng = np.random.default_rng(12345)
 seq_bpm = 250 
 
-SAMPLE_RATE = 48000# samples / second
+DEFAULT_SAMPLE_RATE = 48000# samples / second
 BIT_DEPTH = 16
 intervals = {
     "1":    1,
@@ -29,12 +29,6 @@ intervals = {
     "m7":   9/5, 
     "M7":   15/8,
     "o":    2}
-
-def samples_to_seconds (samples: float) -> float:
-    return samples / SAMPLE_RATE
-
-def seconds_to_samples (seconds : float) -> int:
-    return int(seconds * SAMPLE_RATE)
 
 def add_waveforms(wf_a : 'Waveform', wf_b: 'Waveform') -> 'Waveform':
     new_array = np.add(wf_a.array, wf_b.array)
@@ -91,8 +85,9 @@ class QuadraticFadeIn(Envelope):
         self.size = size
         super().__init__()
     def generate_envelope(self):
-        P = lambda t: t**2
-        self.envelope = np.array([P(t) for t in np.linspace(0, 1, self.size)])
+        l = np.linspace(0, 1, int(self.size))
+        l = l ** 2
+        self.envelope = l
 
 class QuadraticFadeOut(QuadraticFadeIn, ReverseEnvelope):
     def generate_envelope(self):
@@ -128,8 +123,8 @@ class HighPassFilter(Filter):
         # TODO handle period = 0
         N = waveform.array.size
         yf = rfft(waveform.array)
-        xf = rfftfreq(N, 1 / SAMPLE_RATE)
-        points_per_freq = len(xf) / (SAMPLE_RATE / 2)
+        xf = rfftfreq(N, 1 / waveform.sample_rate)
+        points_per_freq = len(xf) / (waveform.sample_rate / 2)
         freq_idx = int(self.freq)
 
         # take log of integers corresponding to frequencies to apply gain to
@@ -156,8 +151,8 @@ class LowPassFilter(Filter):
     def apply_filter(self, waveform : 'Waveform'):
         N = waveform.array.size
         yf = rfft(waveform.array)
-        xf = rfftfreq(N, 1 / SAMPLE_RATE)
-        points_per_freq = len(xf) / (SAMPLE_RATE / 2)
+        xf = rfftfreq(N, 1 / waveform.sample_rate)
+        points_per_freq = len(xf) / (waveform.sample_rate / 2)
         freq_idx = int(self.freq)
 
         freq_gains = np.arange(1,len(xf), dtype = np.float16)
@@ -196,8 +191,11 @@ class BandPassFilter(Filter):
 
 
 class Waveform():
-    def __init__(self, array: np.array):
+    def __init__(self, 
+            array: np.array, 
+            sample_rate: int = DEFAULT_SAMPLE_RATE):
         self.array = array 
+        self.sample_rate = sample_rate
 
     def clear(self):
         self.array = np.zeros(self.array.size)
@@ -216,7 +214,7 @@ class Waveform():
         self.array = a
 
     def write(self, filename: str):
-        wavfile.write(filename, SAMPLE_RATE, self.array) 
+        wavfile.write(filename, self.sample_rate, self.array) 
 
     def normalize(self):
         a = self.array
@@ -237,7 +235,7 @@ class Waveform():
         self.count = 0
 
         stream = self.player.open(
-            rate=SAMPLE_RATE, 
+            rate=self.sample_rate, 
             format=pyaudio.paFloat32, 
             frames_per_buffer=self.CHUNK,
             channels=1, 
@@ -281,7 +279,7 @@ class Waveform():
         import matplotlib.pyplot as plt
         fig,ax = plt.subplots()
         yf = self.fft()
-        xf = rfftfreq(self.array.size, 1 / SAMPLE_RATE)
+        xf = rfftfreq(self.array.size, 1 / self.sample_rate)
 
         plt.plot(xf[band[0]:band[1]], np.abs(yf[band[0]:band[1]]))
         #plt.plot(xf, np.abs(yf))
@@ -291,17 +289,29 @@ class Waveform():
             ax.set_yscale('log')
         plt.show()
 
+    def freq_to_wavelength (self, frequency : float) -> int:
+        return floor(self.sample_rate / frequency)
+
+    def samples_to_seconds (self, samples: float) -> float:
+        return samples / self.sample_rate
+
+    def seconds_to_samples (self, seconds : float) -> int:
+        return int(seconds * self.sample_rate)
+
 class Sequencer(Waveform):
-    def __init__(self, beats: float, bpm: float):
+    def __init__(self, 
+            beats: float, 
+            bpm: float, 
+            sample_rate: int = DEFAULT_SAMPLE_RATE):
         self.bpm = bpm
         self.beats = beats 
         self.bps = self.bpm / 60
-        self.beat_length = int(SAMPLE_RATE / self.bps) 
+        self.beat_length = int(sample_rate / self.bps) 
         array = Rest(self.beats * self.beat_length).array
-        super().__init__(array)
+        super().__init__(array, sample_rate = sample_rate)
 
     def place_waveform(self, beat: float, waveform : Waveform):
-        first_sample = samples_from_beats(self.bpm, beat)
+        first_sample = self.samples_from_beats(beat)
         last_sample = first_sample + waveform.array.size
         overflow_size = last_sample - self.array.size
         if overflow_size > 0:
@@ -316,13 +326,21 @@ class Sequencer(Waveform):
         self.place_waveform(beat,waveform)
 
     def overwrite(self, beat: float, waveform : Waveform):
-        first_sample = samples_from_beats(self.bpm, beat)
+        first_sample = self.samples_from_beats(beat)
         last_sample = first_sample + waveform.array.size
         overflow_size = last_sample - self.array.size
         if overflow_size > 0:
             self.array = np.pad(self.array, (0, overflow_size))
         new_array = np.zeros(self.array.size)
         self.array[first_sample: last_sample] = waveform.array
+
+    def beats_from_samples(self, samples: int) -> float:
+        beats = (samples * self.bpm) / (60 * self.sample_rate)
+        return beats
+
+    def samples_from_beats(self, beat: float) -> int:
+        samples = int((beat * 60 * self.sample_rate) / self.bpm)
+        return samples
 
     def example(self):
         for i in range(self.beats):
@@ -337,12 +355,19 @@ class Sequencer(Waveform):
         self.write_sequence("example.wav")
 
 class SignalGenerator(Waveform):
-    def __init__(self, samples: int, gain: float = 1):
+    def __init__(self, 
+            samples: int, 
+            gain: float = 1, 
+            sample_rate: int = DEFAULT_SAMPLE_RATE):
         self.samples = int(samples)
-        self.seconds = samples_to_seconds(samples)
+        self.sample_rate = sample_rate
+        # this gets set twice because it is needed for generate_waveform and super().__init()
+        # this should be consolidated into one time
+        # TODO fix this
+        self.seconds = samples / sample_rate
         self.gain = gain
         array = self.generate_waveform()
-        super().__init__(array)
+        super().__init__(array, sample_rate = sample_rate)
         self.apply_gain(self.gain)
 
     def generate_waveform(self):
@@ -355,9 +380,13 @@ class SignalGenerator(Waveform):
             print("#" * num)
 
 class Oscillator(SignalGenerator):
-    def __init__(self, freq: float, samples: int, gain: float = 1):
+    def __init__(self, 
+            freq: float, 
+            samples: int, 
+            gain: float = 1,
+            sample_rate = DEFAULT_SAMPLE_RATE):
         self.freq = freq
-        super().__init__(samples, gain)
+        super().__init__(samples, gain, sample_rate = sample_rate)
 
 class Sine(Oscillator):
     def generate_waveform(self) -> np.array:
@@ -372,21 +401,26 @@ def Pentatonic(note, samples, gain = 1) -> Sine:
     return Sine(freq, samples, gain)
 
 class BentSine(Oscillator):
-    def __init__(self, freq: float, freq2: float, samples: int, gain: float = 1):
+    def __init__(self, 
+            freq: float, 
+            freq2: float, 
+            samples: int, 
+            gain: float = 1,
+            sample_rate: float = DEFAULT_SAMPLE_RATE):
         self.freq2 = freq2
-        super().__init__(freq, samples, gain)
+        super().__init__(freq, samples, gain, sample_rate = sample_rate)
     def generate_waveform(self) -> np.array:
         a = np.full((self.samples),.5)
         freq_step = (self.freq2 - self.freq)/self.samples
         freq_array = np.arange(self.freq, self.freq2 , freq_step)
         for i in range(self.samples):
-            angle = np.sin(freq_array[i] * samples_to_seconds(i) *  2 * np.pi)
+            angle = np.sin(freq_array[i] * self.samples_to_seconds(i) *  2 * np.pi)
             a[i] = angle
         return a 
 
 class Square(Oscillator):        
     def generate_waveform(self) -> np.array:
-        wavelength = freq_to_wavelength(self.freq)
+        wavelength = self.freq_to_wavelength(self.freq)
         wave_array = np.empty(self.samples)
         sample_count = 0
         value = 1
@@ -421,9 +455,6 @@ def write_csv(file):
     wf = csv_bpm(f"{file}.csv")
     wf.write(f"{file}.wav")
 
-def freq_to_wavelength (frequency : float) -> int:
-    return floor(SAMPLE_RATE / frequency)
-
 def csv_bpm(filename: str) -> Sequencer:
     return load_csv(filename, seq_bpm)
     
@@ -443,49 +474,45 @@ def load_csv(filename: str, overwrite_bpm: float = 0) -> Sequencer:
             if len(value):
                 new_dict[temp_list[0][ii]] = value
         csv_dicts.append(new_dict)
+
     for i in csv_dicts:
         if 'bpm' in i:
             bpm = float(i['bpm'])
             if overwrite_bpm:
                 bpm = overwrite_bpm
             length = float(i['seq_length'])
-            seq = Sequencer(length, bpm)
+            sr = int(i['sample_rate'])
+            seq = Sequencer(length, bpm, sample_rate = sr)
         else:
-            wf, start = process_csv_row(i, bpm)
+            wf, start = process_csv_row(i, bpm, seq.sample_rate)
             seq.place_waveform(start, wf) 
     return seq
 
-def process_csv_row(row: dict, bpm: float) -> tuple:
+def process_csv_row(row: dict, 
+        bpm: float, 
+        sample_rate: float) -> tuple:
+
     signal_type = signal_map[row['signal_type']] 
     start = float(row['start'])
-
     arg_dict = {}
     if 'gain' in row:
         arg_dict['gain'] = float(row['gain'])
     if 'length' in row:
         length = float(row['length'])
-        arg_dict['samples'] = samples_from_beats(bpm, length)
+        s = int((length * 60 * sample_rate) / bpm) # beats_to_samples from Sequencer
+        arg_dict['samples'] = s
     if 'freq' in row:
         arg_dict['freq'] = float(row['freq'])
     if 'note' in row:
         arg_dict['note'] = int(row['note'])
     waveform = signal_type(**arg_dict)
-
     return waveform, start
-
-def samples_from_beats(bpm: float, beat: float) -> int:
-    samples = int((beat * 60 * SAMPLE_RATE) / bpm)
-    return samples
-
-def beats_from_samples(bpm: float, samples: int) -> float:
-    beats = (samples * bpm) / (60 * SAMPLE_RATE)
-    return beats
 
 def load_wav(filename: str) -> Waveform:
     r = wavfile.read(filename)
-    return Waveform(r[1])
+    return Waveform(r[1], sample_rate = r[0])
 
-def wf_to_envelope(wf: Waveform, samples_smoothed: int = freq_to_wavelength(20)) -> Envelope:
+def wf_to_envelope(wf: Waveform, samples_smoothed: int) -> Envelope:
     wf = deepcopy(wf)
     wf.normalize()
     wf.apply_gain(.5)
@@ -497,6 +524,7 @@ def wf_to_envelope(wf: Waveform, samples_smoothed: int = freq_to_wavelength(20))
     return output
 
 def smooth(array: np.array, smoothing_size: int) -> np.array:
+    # smoothing size in samples
     output_array = deepcopy(array)
     for i in range(1,array.size):
         if i > smoothing_size:
@@ -561,17 +589,25 @@ def generate_sweep(center_freq: float,
     upper = center_freq
     while lower / factor > 20:
         lower /= factor
-        l.append(lower)
+        l.append(round(lower))
     while upper * factor < 20000:
         upper *= factor
-        l.append(upper)
+        l.append(round(upper))
     l.sort()
     print(l)
     s = Sequencer(len(l) * seconds_per_freq, 60)
     for i, freq in enumerate(l):
-        sin = Sine(freq, seconds_to_samples(seconds_per_freq))
+        sin = Sine(freq, DEFAULT_SAMPLE_RATE * seconds_per_freq)
         s.place_waveform(i, sin)
     s.write("sweep.wav")
 
+def analyze_sweep(filename: str):
+    pass
+    wf = load_wav(filename)
+    print(wf.array.size/ 44100)
+    
+    
+    
+
 if __name__ == "__main__":
-    generate_sweep(1000, sqrt(sqrt(2)))
+    analyze_sweep("/home/evan/Documents/reaper_media/freq_sweeps/e_flat.wav")
