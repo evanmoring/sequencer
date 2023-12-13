@@ -6,11 +6,13 @@ BIT_DEPTH = 16
 
 class TestSequencer(unittest.TestCase):
     def test_samples_to_seconds(self):
-        seconds = samples_to_seconds(SAMPLE_RATE*2)
+        wf = Waveform(np.array([]))
+        seconds = wf.samples_to_seconds(SAMPLE_RATE*2)
         self.assertEqual(seconds, 2)
 
     def test_seconds_to_samples(self):
-        samples = seconds_to_samples(2)
+        wf = Waveform(np.array([]))
+        samples = wf.seconds_to_samples(2)
         self.assertEqual(samples, 2*SAMPLE_RATE)
 
     def test_oscillator(self):
@@ -27,11 +29,13 @@ class TestSequencer(unittest.TestCase):
         self.assertTrue((test_array == np.array([.5,.5,-.5])).all())
 
     def test_samples_from_beats(self):
-        res = samples_from_beats(60,2)
+        s = Sequencer(8, 60)
+        res = s.samples_from_beats(2)
         self.assertEqual(res,96000)
 
     def test_beats_from_samples(self):
-        res = beats_from_samples(60, seconds_to_samples(2))
+        s = Sequencer(8, 60)
+        res = s.beats_from_samples(s.seconds_to_samples(2))
         self.assertEqual(res,2)
 
     def test_wf_normalize(self):
@@ -40,9 +44,10 @@ class TestSequencer(unittest.TestCase):
         self.assertTrue(np.array_equal(wf.array, np.array([.5,0,-1])))
 
     def test_sine(self):
-        test_array = Sine(200, seconds_to_samples(2)).array
+        s = Sine(200, 2 * DEFAULT_SAMPLE_RATE)
+        test_array = s.array
         self.assertEqual(test_array[0],0)
-        self.assertEqual(test_array.size, seconds_to_samples(2))
+        self.assertEqual(test_array.size, s.seconds_to_samples(2))
 
     def test_fade(self):
         fade = LinearFadeIn(10)
@@ -59,6 +64,12 @@ class TestSequencer(unittest.TestCase):
         smoothed = (smooth(ar,2))
         ex_array = np.array([1,3,3,3,5,5,5,1])
         self.assertTrue(np.array_equal(smoothed, ex_array))
+
+    def test_drums(self):
+    # TODO improve this test
+        import drums
+
+#TODO add load_csv test
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
