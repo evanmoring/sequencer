@@ -4,7 +4,7 @@ import numpy as np
 from numpy import pi 
 from math import floor, sqrt
 from scipy.io import wavfile
-from scipy.fftpack import  rfftfreq, rfft, irfft
+from scipy.fft import  rfftfreq, rfft, irfft
 from scipy.signal.windows import hamming
 import csv
 import pyaudio
@@ -124,38 +124,45 @@ class Filter:
         return waveform
 
 class HighPassFilter(Filter):
-    def __init__(self, freq: int, period: int = 1, gain: float = 0) -> np.ndarray:
-        # period in octaves, gain of .5 would half the signal per frequency 
+    def __init__(self, freq: int, period: float = 1, gain: float = .5):
+        # period in octaves, gain of .5 would half the signal per period 
         self.freq = freq
+        assert period >= 0
         self.period = period
         self.gain = gain
         
     def apply_filter(self, waveform : 'Waveform') -> np.ndarray:
-        # TODO handle period = 0
         N = waveform.array.size
         yf = rfft(waveform.array)
         xf = rfftfreq(N, 1 / waveform.sample_rate)
         points_per_freq = len(xf) / (waveform.sample_rate / 2)
-        freq_idx = int(self.freq)
+        freq_idx = int(self.freq * points_per_freq)
 
-        # take log of integers corresponding to frequencies to apply gain to
-        freq_gains = np.arange(freq_idx, dtype = np.float16)
-        freq_gains[0] = 1
-        freq_gains = np.emath.logn(self.period*2, freq_gains)
-        g = np.full(len(freq_gains), self.gain)
-        # raise the gain to the power of the number of periods
-        freq_gains = g ** freq_gains
-        freq_gains[0] = 1
-        # gain for knee frequency should be 1. Scale other freqs to match
-        freq_gains /= freq_gains[freq_idx-1]
-        freq_gains = np.reciprocal(freq_gains)
+        if self.period:
+            # take log of integers corresponding to frequencies to apply gain to
+            freq_gains = np.arange(freq_idx, dtype = np.float32)
+            freq_gains[0] = 1
+            freq_gains = np.emath.logn(2 , freq_gains)
+            freq_gains *= 1/self.period
+            g = np.full(len(freq_gains), self.gain)
+            # raise the gain to the power of the number of periods
+            freq_gains = g ** freq_gains
+            freq_gains[0] = 1
+            # gain for knee frequency should be 1. Scale other freqs to match
+            freq_gains /= freq_gains[freq_idx-1]
+            freq_gains = np.reciprocal(freq_gains)
+        else:
+            # handle period of 0
+            freq_gains = np.zeros(freq_idx)
+
         yf[:freq_idx] *= freq_gains
         return yf
 
 class LowPassFilter(Filter):
-    def __init__(self, freq: int, period: int = 1, gain: float = 0) -> np.ndarray:
-        # period in octaves, gain of .5 would half the signal per frequency 
+    def __init__(self, freq: int, period: int = 1, gain: float = .5):
+        # period in octaves, gain of .5 would half the signal per period 
         self.freq = freq
+        assert period >= 0
         self.period = period
         self.gain = gain
         
@@ -163,20 +170,20 @@ class LowPassFilter(Filter):
         N = waveform.array.size
         yf = rfft(waveform.array)
         xf = rfftfreq(N, 1 / waveform.sample_rate)
-        points_per_freq = len(xf) / (waveform.sample_rate / 2)
         freq_idx = int(self.freq)
-
-        freq_gains = np.arange(1,len(xf), dtype = np.float16)
-        # scale frequencies to knee
-        freq_gains = freq_gains / self.freq
-        # take log2 value of scaled frequencies
-        for i , val in enumerate(freq_gains):
-            if not val:
-                print(i)
-        freq_gains = np.emath.logn(2, freq_gains)
-        g = np.full(len(freq_gains[freq_idx:]), self.gain)
-        # raise gain to the log2 value of scaled frequencies
-        freq_gains[freq_idx:] =  g ** freq_gains[freq_idx:]
+        if self.period:
+            freq_gains = np.arange(1,len(xf), dtype = np.float16)
+            # scale frequencies to knee
+            freq_gains = freq_gains / self.freq
+            freq_gains = np.emath.logn(2, freq_gains)
+            freq_gains *= 1/self.period
+            # TODO handle periods
+            g = np.full(len(freq_gains[freq_idx:]), self.gain)
+            # raise gain to the log2 value of scaled frequencies
+            freq_gains[freq_idx:] =  g ** freq_gains[freq_idx:]
+        else:
+            # handle period 0
+            freq_gains = np.zeros(len(xf) - 1)
         yf[freq_idx+1:] *= freq_gains[freq_idx:]
         return yf
 
@@ -192,7 +199,7 @@ class BandPassFilter(Filter):
         right_knee = self.freq * (2**(.5 * self.width)) 
         left_knee = self.freq * (1/(2**(.5 * self.width))) 
         wf = waveform
-        lp = LowPassFilter(left_knee, period =self.period, gain = self.gain)
+        lp = LowPassFilter(left_knee, period = self.period, gain = self.gain)
         hp = HighPassFilter(right_knee, period = self.period, gain = self.gain)
         a = lp.apply_filter(wf)
         b = hp.apply_filter(wf)
@@ -713,6 +720,16 @@ def convert_to_dBV(a: float) -> float:
     return a
 
 if __name__ == "__main__":
+    wf = WhiteNoise(DEFAULT_SAMPLE_RATE)
+    lp = HighPassFilter(20000, .25, .5)
+    wf.apply_filter(lp)
+    wf.plot_fft()
+    wf = WhiteNoise(DEFAULT_SAMPLE_RATE)
+    lp = HighPassFilter(20000, 2, .5)
+    wf.apply_filter(lp)
+    wf.plot_fft()
+    exit()
+    #
     write_sweep_wav(1000, sqrt(sqrt(sqrt(2))), .5, "sweep2.wav")
     p = "/home/evan/Documents/reaper_media/freq_sweeps"
     sweeps = [

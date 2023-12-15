@@ -1,7 +1,9 @@
+#!/usr/bin/python3
+
 from sequencer import *
 import unittest
 
-SAMPLE_RATE = 48000# samples / second
+SAMPLE_RATE = 48000 # samples / second
 BIT_DEPTH = 16
 
 class TestSequencer(unittest.TestCase):
@@ -65,14 +67,26 @@ class TestSequencer(unittest.TestCase):
         ex_array = np.array([1,3,3,3,5,5,5,1])
         self.assertTrue(np.array_equal(smoothed, ex_array))
 
+    def test_filter(self):
+        # TODO test that these are working properly, not just that they don't crash
+        wf = WhiteNoise(DEFAULT_SAMPLE_RATE)
+        hp = HighPassFilter(1000, 0, .5)
+        lp = LowPassFilter(2000, 0, .5)
+        wf.apply_filter(hp)
+        wf.apply_filter(lp)
+        wf = WhiteNoise(DEFAULT_SAMPLE_RATE)
+        hp = HighPassFilter(1000, .25, .4)
+        lp = LowPassFilter(2000, 2, .25)
+        wf.apply_filter(hp)
+        wf.apply_filter(lp)
+
     def test_drums(self):
-    # TODO improve this test
+        # TODO improve this test
         import drums
 
     def test_sweep(self):
         write_sweep_wav(1000, sqrt(sqrt(sqrt(2))), .5, "sweep2.wav")
-        sweeps = ["sweep2.wav"]
-        plot_sweeps(sweeps, 3)
+        analyze_sweep("sweep2.wav")
 
 #TODO add load_csv test
 
