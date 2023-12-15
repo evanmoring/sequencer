@@ -2,6 +2,7 @@
 
 from sequencer import *
 import unittest
+import os
 
 SAMPLE_RATE = 48000 # samples / second
 BIT_DEPTH = 16
@@ -26,9 +27,16 @@ class TestSequencer(unittest.TestCase):
         r = Rest(1)
         self.assertEqual(r.array, np.array([0]))
 
-    def test_add_waveforms(self):
-        test_array = add_waveforms(Waveform(np.array([0,.5,-1])), Waveform(np.array([1,.5,0]))).array
-        self.assertTrue((test_array == np.array([.5,.5,-.5])).all())
+    def test_add_remove_waveforms(self):
+        wf_a = Waveform(np.array([0,.5,-1]))
+        wf_b = Waveform(np.array([1,.5,0]))
+        wf_o = add_waveforms(wf_a,wf_b)
+        s = Sequencer(1/60,1,1)
+        s.place_waveform(0, wf_o)
+        self.assertTrue((s.array == np.array([.5,.5,-.5])).all())
+        s.apply_gain(2)
+        s.remove_waveform(0,wf_a)
+        self.assertTrue((s.array == wf_b.array).all())
 
     def test_samples_from_beats(self):
         s = Sequencer(8, 60)
@@ -68,12 +76,19 @@ class TestSequencer(unittest.TestCase):
         self.assertTrue(np.array_equal(smoothed, ex_array))
 
     def test_filter(self):
-        # TODO test that these are working properly, not just that they don't crash
         wf = WhiteNoise(DEFAULT_SAMPLE_RATE)
+        f = wf.fft()
+        f = np.full(f.size, 10)
+        wf.ifft(f)
         hp = HighPassFilter(1000, 0, .5)
         lp = LowPassFilter(2000, 0, .5)
         wf.apply_filter(hp)
         wf.apply_filter(lp)
+        f = abs(wf.fft())
+        self.assertTrue(f[5] < .1)
+        self.assertTrue(f[1500] > .1)
+        self.assertTrue(f[2500] < .1)
+
         wf = WhiteNoise(DEFAULT_SAMPLE_RATE)
         hp = HighPassFilter(1000, .25, .4)
         lp = LowPassFilter(2000, 2, .25)
@@ -81,14 +96,20 @@ class TestSequencer(unittest.TestCase):
         wf.apply_filter(lp)
 
     def test_drums(self):
-        # TODO improve this test
         import drums
+        drums.Snare()
+        drums.Kick()
+        drums.Hihat()
+        drums.Cymbal()
 
     def test_sweep(self):
-        write_sweep_wav(1000, sqrt(sqrt(sqrt(2))), .5, "sweep2.wav")
-        analyze_sweep("sweep2.wav")
+        write_sweep_wav(1000, sqrt(sqrt(sqrt(2))), .5, "sweep_example.wav")
+        analyze_sweep("sweep_example.wav")
+        os.remove("sweep_example.wav")
 
-#TODO add load_csv test
+    def test_load_csv(self):
+        import drums
+        load_csv("example.csv", drums.signal_map)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

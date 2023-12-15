@@ -177,7 +177,6 @@ class LowPassFilter(Filter):
             freq_gains = freq_gains / self.freq
             freq_gains = np.emath.logn(2, freq_gains)
             freq_gains *= 1/self.period
-            # TODO handle periods
             g = np.full(len(freq_gains[freq_idx:]), self.gain)
             # raise gain to the log2 value of scaled frequencies
             freq_gains[freq_idx:] =  g ** freq_gains[freq_idx:]
@@ -283,7 +282,6 @@ class Waveform():
         x = np.arange(0, self.array.size, 1)
         plt.subplot(211)
         plt.plot(x, self.array)
-        plt.title("Generated Signal")
         plt.show()
 
     def fft(self) -> np.ndarray:
@@ -338,7 +336,6 @@ class Sequencer(Waveform):
         self.array = np.add(self.array, new_array)
 
     def remove_waveform(self, beat: float, waveform : Waveform):
-    # TODO write test for this
         waveform.apply_gain(-1)
         self.place_waveform(beat,waveform)
 
@@ -376,15 +373,12 @@ class SignalGenerator(Waveform):
             samples: int, 
             gain: float = 1, 
             sample_rate: int = DEFAULT_SAMPLE_RATE):
+
         self.samples = int(samples)
         self.sample_rate = sample_rate
-        # this gets set twice because it is needed for generate_waveform and super().__init()
-        # this should be consolidated into one time
-        # TODO fix this
         self.seconds = samples / sample_rate
         self.gain = gain
-        array = self.generate_waveform()
-        super().__init__(array, sample_rate)
+        self.array = self.generate_waveform()
         self.apply_gain(self.gain)
 
     def generate_waveform(self):
@@ -476,7 +470,7 @@ def write_csv(file):
 def csv_bpm(filename: str) -> Sequencer:
     return load_csv(filename, seq_bpm)
     
-def load_csv(filename: str, overwrite_bpm: float = 0) -> Sequencer:
+def load_csv(filename: str, signal_map: dict, overwrite_bpm: float = 0) -> Sequencer:
     csv_dicts = []
     waveform_list = []
 
@@ -499,15 +493,19 @@ def load_csv(filename: str, overwrite_bpm: float = 0) -> Sequencer:
             if overwrite_bpm:
                 bpm = overwrite_bpm
             length = float(i['seq_length'])
-            sr = int(i['sample_rate'])
+            if 'sample_rate' in i.keys():
+                sr = int(i['sample_rate'])
+            else:
+                sr = DEFAULT_SAMPLE_RATE
             seq = Sequencer(length, bpm, sample_rate = sr)
         else:
-            wf, start = process_csv_row(i, bpm, seq.sample_rate)
+            wf, start = process_csv_row(i, bpm, signal_map, seq.sample_rate)
             seq.place_waveform(start, wf) 
     return seq
 
 def process_csv_row(row: dict, 
         bpm: float, 
+        signal_map: dict,
         sample_rate: float) -> tuple:
 
     signal_type = signal_map[row['signal_type']] 
@@ -526,13 +524,16 @@ def process_csv_row(row: dict,
     waveform = signal_type(**arg_dict)
     return waveform, start
 
-def load_wav(filename: str) -> Waveform:
+def load_wav(filename: str) -> list:
+    # return a Waveform for each channel
     rate, data = wavfile.read(filename)
-    # only use channel 1
-    # TODO return both channels as separate waveforms? 
+    wf = []
     if len(data.shape) > 1:
-        data = data[:, 0]
-    return Waveform(data, rate)
+        for i in range(len(data.shape[1])):
+            wf.append = Waveform(data[:, i], rate)
+    else:
+        wf.append(Waveform(data,rate))
+    return wf
 
 def wf_to_envelope(wf: Waveform, samples_smoothed: int) -> Envelope:
     wf = deepcopy(wf)
@@ -638,7 +639,7 @@ def analyze_sweep(filename: str, seconds_per_division: float = 1) -> np.array:
     # you will get the average values of each 4th of the file 
     # (after a hamming window is applied)
 
-    wf = load_wav(filename)
+    wf = load_wav(filename)[0]
     # split file into chunks
     seconds = int(wf.samples_to_seconds(wf.array.size))
     division = int(wf.sample_rate * seconds_per_division)
