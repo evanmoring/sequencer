@@ -69,6 +69,11 @@ class TestSequencer(unittest.TestCase):
     # TODO improve this test
         import drums
 
+    def test_sweep(self):
+        write_sweep_wav(1000, sqrt(sqrt(sqrt(2))), .5, "sweep2.wav")
+        sweeps = ["sweep2.wav"]
+        plot_sweeps(sweeps, 3)
+
 #TODO add load_csv test
 
 if __name__ == "__main__":

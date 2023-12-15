@@ -1,14 +1,25 @@
+#!/usr/bin/python3
 
 import numpy as np
 from numpy import pi 
 from math import floor, sqrt
 from scipy.io import wavfile
 from scipy.fftpack import  rfftfreq, rfft, irfft
+from scipy.signal.windows import hamming
 import csv
 import pyaudio
 import time
 from threading import Thread, Lock
 from copy import deepcopy
+# matplotlib is slow, only import it if its needed
+plt = None
+ScalarFormatter = None
+
+def import_plt():
+    global plt, ScalarFormatter
+    if plt == None:
+        import matplotlib.pyplot as plt
+        from matplotlib.ticker import ScalarFormatter
 
 rng = np.random.default_rng(12345)
 seq_bpm = 250 
@@ -53,7 +64,7 @@ class Envelope:
         return None
 
     def plot(self):
-        import matplotlib.pyplot as plt
+        import_plt()
         plt.figure(figsize = (20, 10))
         x = np.arange(0, self.envelope.size, 1)
         plt.subplot(211)
@@ -189,7 +200,6 @@ class BandPassFilter(Filter):
         a /= max(b)
         return a
 
-
 class Waveform():
     def __init__(self, 
             array: np.array, 
@@ -261,7 +271,7 @@ class Waveform():
         self.play_flag = False
     
     def plot(self):
-        import matplotlib.pyplot as plt
+        import_plt()
         plt.figure(figsize = (20, 10))
         x = np.arange(0, self.array.size, 1)
         plt.subplot(211)
@@ -276,13 +286,13 @@ class Waveform():
         return np.fft.irfft(fft, n=self.array.size)
 
     def plot_fft(self, log_x: bool = False, log_y: bool = False, band: list  = [20,20000]):
-        import matplotlib.pyplot as plt
+        import_plt()
         fig,ax = plt.subplots()
         yf = self.fft()
         xf = rfftfreq(self.array.size, 1 / self.sample_rate)
 
-        plt.plot(xf[band[0]:band[1]], np.abs(yf[band[0]:band[1]]))
-        #plt.plot(xf, np.abs(yf))
+        #plt.plot(xf[band[0]:band[1]], np.abs(yf[band[0]:band[1]]))
+        plt.plot(xf, np.abs(yf))
         if log_x:
             ax.set_xscale('log')
         if log_y:
@@ -308,7 +318,7 @@ class Sequencer(Waveform):
         self.bps = self.bpm / 60
         self.beat_length = int(sample_rate / self.bps) 
         array = Rest(self.beats * self.beat_length).array
-        super().__init__(array, sample_rate = sample_rate)
+        super().__init__(array, sample_rate)
 
     def place_waveform(self, beat: float, waveform : Waveform):
         first_sample = self.samples_from_beats(beat)
@@ -367,7 +377,7 @@ class SignalGenerator(Waveform):
         self.seconds = samples / sample_rate
         self.gain = gain
         array = self.generate_waveform()
-        super().__init__(array, sample_rate = sample_rate)
+        super().__init__(array, sample_rate)
         self.apply_gain(self.gain)
 
     def generate_waveform(self):
@@ -386,7 +396,7 @@ class Oscillator(SignalGenerator):
             gain: float = 1,
             sample_rate = DEFAULT_SAMPLE_RATE):
         self.freq = freq
-        super().__init__(samples, gain, sample_rate = sample_rate)
+        super().__init__(samples, gain, sample_rate)
 
 class Sine(Oscillator):
     def generate_waveform(self) -> np.array:
@@ -408,7 +418,7 @@ class BentSine(Oscillator):
             gain: float = 1,
             sample_rate: float = DEFAULT_SAMPLE_RATE):
         self.freq2 = freq2
-        super().__init__(freq, samples, gain, sample_rate = sample_rate)
+        super().__init__(freq, samples, gain, sample_rate)
     def generate_waveform(self) -> np.array:
         a = np.full((self.samples),.5)
         freq_step = (self.freq2 - self.freq)/self.samples
@@ -451,6 +461,7 @@ class Scale():
             self.intervals.append(intervals[i])
         self.intervals = np.array(self.intervals)
         self.scale = self.intervals * self.unison
+
 def write_csv(file):
     wf = csv_bpm(f"{file}.csv")
     wf.write(f"{file}.wav")
@@ -509,8 +520,12 @@ def process_csv_row(row: dict,
     return waveform, start
 
 def load_wav(filename: str) -> Waveform:
-    r = wavfile.read(filename)
-    return Waveform(r[1], sample_rate = r[0])
+    rate, data = wavfile.read(filename)
+    # only use channel 1
+    # TODO return both channels as separate waveforms? 
+    if len(data.shape) > 1:
+        data = data[:, 0]
+    return Waveform(data, rate)
 
 def wf_to_envelope(wf: Waveform, samples_smoothed: int) -> Envelope:
     wf = deepcopy(wf)
@@ -580,9 +595,8 @@ def formant(samples: int, formant_a: int, formant_b: int):
     #o = add_waveforms(o,c)
     return o
 
-def generate_sweep(center_freq: float, 
-                   factor: float, 
-                   seconds_per_freq: float = 1) -> 'Waveform': 
+def gen_sweep_freqs(center_freq: float,
+        factor: float) -> list:
 
     l = [center_freq]
     lower = center_freq
@@ -594,20 +608,117 @@ def generate_sweep(center_freq: float,
         upper *= factor
         l.append(round(upper))
     l.sort()
-    print(l)
+    return l
+
+def write_sweep_wav(center_freq: float, 
+                   factor: float = sqrt(sqrt(2)), 
+                   seconds_per_freq: float = 1,
+                   filename: str = "sweep.wav") -> 'Waveform': 
+
+    l = gen_sweep_freqs(center_freq, factor)
+
     s = Sequencer(len(l) * seconds_per_freq, 60)
     for i, freq in enumerate(l):
         sin = Sine(freq, DEFAULT_SAMPLE_RATE * seconds_per_freq)
-        s.place_waveform(i, sin)
-    s.write("sweep.wav")
+        s.place_waveform(i * seconds_per_freq, sin)
+    s.write(filename)
+    return s
 
-def analyze_sweep(filename: str):
-    pass
+def analyze_sweep(filename: str, seconds_per_division: float = 1) -> np.array:
+
+    # returns a list of average values for each division
+    # to wit, if you have a 2 second wav file with .5 seconds_per_division
+    # you will get the average values of each 4th of the file 
+    # (after a hamming window is applied)
+
     wf = load_wav(filename)
-    print(wf.array.size/ 44100)
-    
-    
-    
+    # split file into chunks
+    seconds = int(wf.samples_to_seconds(wf.array.size))
+    division = int(wf.sample_rate * seconds_per_division)
+    freq_list = []
+    start = 0
+    end = division
+    for i in range(seconds * seconds_per_division):
+        freq_list.append(wf.array[start:end])
+        start += division
+        end += division
+    # apply hamming window to deal with spikes from transitions
+    # get RMS
+    h = np.array(hamming(freq_list[0].size))
+    m = []
+    for i, a in enumerate(freq_list):
+        freq_list[i] = freq_list[i] * h
+        freq_list[i] = freq_list[i] ** 2
+        a = np.average(freq_list[i])
+        a = sqrt(a)
+        m.append(a)
+    m = np.array(m)
+    return m
+
+def plot_sweeps(sweeps: list, 
+        offset: float = 0, 
+        seconds_per_division = 1, 
+        frequencies: list = None):
+
+    # takes a list of wav files and a description of the files 
+    # and plots their frequency response
+    # see write_sweep_wav for expected files
+    # files should be trimmed to the start and end of the wavs
+
+    if frequencies == None:
+        frequencies = gen_sweep_freqs(1000, sqrt(sqrt(2)))
+
+    s = {}
+    m = 0
+
+    for i in sweeps:
+        s[i] = analyze_sweep(i, seconds_per_division)
+        m = max(m, max(s[i]))
+
+    for i in sweeps:
+    # scale to max value then convert to dBV
+        s[i] = convert_to_dBV(s[i] / m)
+        s[i] += offset
+
+    # plot
+    import_plt()
+    fig,ax = plt.subplots()
+    plt.xlabel("hz")
+    plt.ylabel("dBV")
+    # gridlines
+    plt.grid()
+    ax.set_xscale('log')
+    # 3dB per gridline
+    major_y_ticks = np.arange(100, -100, -3)
+    ax.set_yticks(major_y_ticks)
+    # frequency label gets busy if you plot all of them
+    # use every 4th frequency instead
+    fewer_freqs = [x for i, x in enumerate(frequencies) if i % 4 == 2]
+    ax.set_xticks(fewer_freqs)
+    # we don't want hz in scientific notation
+    ax.xaxis.set_major_formatter(ScalarFormatter())
+    point_size_factor = 5
+    for k, v in s.items():
+        plt.scatter(frequencies, v, label=k, s=point_size_factor * np.ones_like(frequencies))
+        plt.plot(frequencies, v[:len(frequencies)], label = k, alpha = .5)
+    # the legend ended up pretty noisy
+    #plt.legend()
+    plt.title("Frequency Response")
+    plt.show()
+
+def convert_to_dBV(a: float) -> float:
+    a = np.abs(a)
+    a = np.log10(a)
+    a = 20* a
+    return a
 
 if __name__ == "__main__":
-    analyze_sweep("/home/evan/Documents/reaper_media/freq_sweeps/e_flat.wav")
+    write_sweep_wav(1000, sqrt(sqrt(sqrt(2))), .5, "sweep2.wav")
+    p = "/home/evan/Documents/reaper_media/freq_sweeps"
+    sweeps = [
+        f"{p}/e_flat.wav",
+        f"{p}/e_bass_up.wav", 
+        f"{p}/e_bass_down.wav",
+        f"{p}/e_treble_up.wav",
+        f"{p}/e_treble_down.wav"]
+    plot_sweeps(sweeps, 3)
