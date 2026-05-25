@@ -72,7 +72,6 @@ class IQuadraticFadeOut(IQuadraticFadeIn, ReverseEnvelope):
         super().generate_envelope()
         self.flip()
 
-
 def wf_to_envelope(wf: Waveform, samples_smoothed: int) -> Envelope:
     wf = deepcopy(wf)
     wf.normalize()

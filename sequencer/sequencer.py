@@ -371,10 +371,12 @@ def process_csv_row(row: dict,
 def load_wav(filename: str) -> list:
     # return a Waveform for each channel
     rate, data = wavfile.read(filename)
+    print(data)
+    print(data.shape)
     wf = []
     if len(data.shape) > 1:
-        for i in range(len(data.shape[1])):
-            wf.append = Waveform(data[:, i], rate)
+        for i in range(data.shape[1]):
+            wf.append(Waveform(data[:, i], rate))
     else:
         wf.append(Waveform(data,rate))
     return wf
@@ -477,7 +479,6 @@ def write_sweep_wav(center_freq: float,
     return s
 
 def analyze_sweep(filename: str, seconds_per_division: float = 1) -> np.array:
-
     # returns a list of average values for each division
     # to wit, if you have a 2 second wav file with .5 seconds_per_division
     # you will get the average values of each 4th of the file 
