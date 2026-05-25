@@ -1,4 +1,6 @@
-from sequencer import *
+from sequencer.sequencer import *
+from sequencer.filters import *
+from sequencer.envelopes import *
 
 class Hihat(Waveform):
     length = int(.25 * DEFAULT_SAMPLE_RATE)

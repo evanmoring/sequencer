@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-
+from __future__ import annotations
 import numpy as np
 from numpy import pi 
 from math import floor, sqrt
@@ -17,6 +17,8 @@ ScalarFormatter = None
 
 def import_plt():
     global plt, ScalarFormatter
+    import matplotlib
+    matplotlib.use("TkAgg")
     if plt == None:
         import matplotlib.pyplot as plt
         from matplotlib.ticker import ScalarFormatter
@@ -26,6 +28,7 @@ seq_bpm = 250
 
 DEFAULT_SAMPLE_RATE = 48000# samples / second
 BIT_DEPTH = 16
+
 intervals = {
     "1":    1,
     "m2":   16/15, 
@@ -46,165 +49,6 @@ def add_waveforms(wf_a : 'Waveform', wf_b: 'Waveform') -> 'Waveform':
     new_wf = Waveform(new_array)
     new_wf.apply_gain(.5)
     return new_wf
-
-class Envelope:
-    def __init__(self):
-        self.generate_envelope()
-
-    def flip(self):
-        self.envelope = np.flip(self.envelope)
-
-    def fill(self, new_size: int) -> np.array:
-        larger_envelope = np.full((new_size),1)
-        env_array = np.full(new_size, 1.0)
-        env_array[:self.envelope.size] = self.envelope
-        return env_array
-
-    def generate_envelope(self):
-        return None
-
-    def plot(self):
-        import_plt()
-        plt.figure(figsize = (20, 10))
-        x = np.arange(0, self.envelope.size, 1)
-        plt.subplot(211)
-        plt.plot(x, self.envelope)
-        plt.title("Generated Signal")
-        plt.show()
-
-class ReverseEnvelope(Envelope):
-    def fill(self, new_size: int) -> np.array:
-        self.envelope = np.flip(self.envelope)
-        env_array = np.flip(super().fill(new_size))
-        self.envelope = np.flip(self.envelope)
-        return env_array
-
-class LinearFadeIn(Envelope):
-    def __init__(self, size: int):
-        self.size = size
-        super().__init__()
-    def generate_envelope(self):
-        self.envelope = np.arange(0, 1, 1/self.size)
-
-class LinearFadeOut(LinearFadeIn, ReverseEnvelope):
-    def generate_envelope(self):
-        super().generate_envelope()
-        self.flip()
-
-class QuadraticFadeIn(Envelope):
-    def __init__(self, size: int):
-        self.size = size
-        super().__init__()
-    def generate_envelope(self):
-        l = np.linspace(0, 1, int(self.size))
-        l = l ** 2
-        self.envelope = l
-
-class QuadraticFadeOut(QuadraticFadeIn, ReverseEnvelope):
-    def generate_envelope(self):
-        super().generate_envelope()
-        self.flip()
-
-class IQuadraticFadeIn(Envelope):
-    def __init__(self, size: int):
-        self.size = size
-        super().__init__()
-    def generate_envelope(self):
-        P = lambda t: 1- t**2
-        self.envelope = np.array([P(t) for t in np.linspace(0, 1, self.size)])
-        self.flip()
-
-class IQuadraticFadeOut(IQuadraticFadeIn, ReverseEnvelope):
-    def generate_envelope(self):
-        super().generate_envelope()
-        self.flip()
-
-class Filter:
-    def apply_filter(waveform: 'Waveform') -> 'Waveform':
-        return waveform
-
-class HighPassFilter(Filter):
-    def __init__(self, freq: int, period: float = 1, gain: float = .5):
-        # period in octaves, gain of .5 would half the signal per period 
-        self.freq = freq
-        assert period >= 0
-        self.period = period
-        self.gain = gain
-        
-    def apply_filter(self, waveform : 'Waveform') -> np.ndarray:
-        N = waveform.array.size
-        yf = rfft(waveform.array)
-        xf = rfftfreq(N, 1 / waveform.sample_rate)
-        points_per_freq = len(xf) / (waveform.sample_rate / 2)
-        freq_idx = int(self.freq * points_per_freq)
-
-        if self.period:
-            # take log of integers corresponding to frequencies to apply gain to
-            freq_gains = np.arange(freq_idx, dtype = np.float32)
-            freq_gains[0] = 1
-            freq_gains = np.emath.logn(2 , freq_gains)
-            freq_gains *= 1/self.period
-            g = np.full(len(freq_gains), self.gain)
-            # raise the gain to the power of the number of periods
-            freq_gains = g ** freq_gains
-            freq_gains[0] = 1
-            # gain for knee frequency should be 1. Scale other freqs to match
-            freq_gains /= freq_gains[freq_idx-1]
-            freq_gains = np.reciprocal(freq_gains)
-        else:
-            # handle period of 0
-            freq_gains = np.zeros(freq_idx)
-
-        yf[:freq_idx] *= freq_gains
-        return yf
-
-class LowPassFilter(Filter):
-    def __init__(self, freq: int, period: int = 1, gain: float = .5):
-        # period in octaves, gain of .5 would half the signal per period 
-        self.freq = freq
-        assert period >= 0
-        self.period = period
-        self.gain = gain
-        
-    def apply_filter(self, waveform : 'Waveform'):
-        N = waveform.array.size
-        yf = rfft(waveform.array)
-        xf = rfftfreq(N, 1 / waveform.sample_rate)
-        freq_idx = int(self.freq)
-        if self.period:
-            freq_gains = np.arange(1,len(xf), dtype = np.float16)
-            # scale frequencies to knee
-            freq_gains = freq_gains / self.freq
-            freq_gains = np.emath.logn(2, freq_gains)
-            freq_gains *= 1/self.period
-            g = np.full(len(freq_gains[freq_idx:]), self.gain)
-            # raise gain to the log2 value of scaled frequencies
-            freq_gains[freq_idx:] =  g ** freq_gains[freq_idx:]
-        else:
-            # handle period 0
-            freq_gains = np.zeros(len(xf) - 1)
-        yf[freq_idx+1:] *= freq_gains[freq_idx:]
-        return yf
-
-class BandPassFilter(Filter):
-    def __init__(self, freq: int, period: int = 0, gain: float = 0, width: float = 0) -> np.ndarray:
-        # period in octaves, gain of .5 would half the signal per frequency, width in octaves
-        self.freq = freq
-        self.period = period
-        self.gain = gain
-        self.width = width
-        
-    def apply_filter(self, waveform : 'Waveform') -> np.ndarray:
-        right_knee = self.freq * (2**(.5 * self.width)) 
-        left_knee = self.freq * (1/(2**(.5 * self.width))) 
-        wf = waveform
-        lp = LowPassFilter(left_knee, period = self.period, gain = self.gain)
-        hp = HighPassFilter(right_knee, period = self.period, gain = self.gain)
-        a = lp.apply_filter(wf)
-        b = hp.apply_filter(wf)
-        a *= b
-        a /= max(b)
-        return a
 
 class Waveform():
     def __init__(self, 
@@ -247,7 +91,7 @@ class Waveform():
         self.play_flag = True
         self.player = pyaudio.PyAudio()
         self.CHUNK = 1024
-        data = self.array.astype(np.float32).tostring()
+        data = self.array.astype(np.float32).tobytes()
         self.count = 0
 
         stream = self.player.open(
@@ -271,7 +115,7 @@ class Waveform():
             c2 = self.array[ : diff]
             self.count = diff
             c = np.concatenate((c1, c2))
-        return (c.astype(np.float32).tostring()  , pyaudio.paContinue)
+        return (c.astype(np.float32).tobytes()  , pyaudio.paContinue)
 
     def stop(self):
         self.play_flag = False
@@ -719,24 +563,3 @@ def convert_to_dBV(a: float) -> float:
     a = np.log10(a)
     a = 20* a
     return a
-
-if __name__ == "__main__":
-    wf = WhiteNoise(DEFAULT_SAMPLE_RATE)
-    lp = HighPassFilter(20000, .25, .5)
-    wf.apply_filter(lp)
-    wf.plot_fft()
-    wf = WhiteNoise(DEFAULT_SAMPLE_RATE)
-    lp = HighPassFilter(20000, 2, .5)
-    wf.apply_filter(lp)
-    wf.plot_fft()
-    exit()
-    #
-    write_sweep_wav(1000, sqrt(sqrt(sqrt(2))), .5, "sweep2.wav")
-    p = "/home/evan/Documents/reaper_media/freq_sweeps"
-    sweeps = [
-        f"{p}/e_flat.wav",
-        f"{p}/e_bass_up.wav", 
-        f"{p}/e_bass_down.wav",
-        f"{p}/e_treble_up.wav",
-        f"{p}/e_treble_down.wav"]
-    plot_sweeps(sweeps, 3)

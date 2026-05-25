@@ -3,16 +3,17 @@ import threading
 import time
 import sys
 sys.path.append('../')
-import sequencer
+import sequencer.sequencer as sequencer
+from sequencer.drums import *
 import time
 
 bpm = 250
 beats = 8 
 stop_flag = False
 instrument_map = {
-"snare": sequencer.Snare(),
-"hihat": sequencer.Hihat(),
-"kick": sequencer.Kick()
+"snare": Snare(),
+"hihat": Hihat(),
+"kick": Kick()
 }
 
 app = Flask(__name__)
@@ -32,6 +33,7 @@ def request_rec():
     if a == "remove":
         seq.remove_waveform(x * beats, instrument_map[i])
     if a == "add":
+        print(i)
         seq.place_waveform(x * beats, instrument_map[i])
 
     return jsonify(isError= False,
